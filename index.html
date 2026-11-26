@@ -517,7 +517,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .vec { display: flex; flex-direction: column; gap: 2px; }
 .vec span {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 6px;
   min-width: 0;
   line-height: 1.5;
@@ -529,6 +529,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--text-3);
   width: 8px;
   flex: none;
+  padding-top: 3px;
 }
 .num {
   font-family: var(--mono);
@@ -546,10 +547,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
+  /* 完整显示：不再省略号截断，长表达式换行；连 query.body_y_rotation 这种长 token 也允许断 */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
   line-height: 1.45;
 }
 /* 只有引用了 this 的那一条轴标蓝，不标整个格子 */
@@ -566,12 +566,14 @@ html[data-theme="light"] .expr.th {
 .keys { display: flex; flex-direction: column; gap: 3px; }
 .keys span {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 6px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-2);
-  white-space: nowrap;
+  /* 完整显示：一帧一行，长了就换行，不再裁掉 */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 .keys b {
   font-weight: 400;
@@ -580,8 +582,56 @@ html[data-theme="light"] .expr.th {
   font-variant-numeric: tabular-nums;
 }
 .keys u { text-decoration: none; color: var(--border-2); }
-.keys .more { color: var(--text-3); font-size: 10.5px; }
 .keys .jump { color: var(--amber); }
+
+/* ---- 骨骼列：表头可点隐藏 / 已隐藏提示栏 ---- */
+.mtx thead th.boneh[data-bone] { cursor: pointer; }
+.mtx thead th.boneh[data-bone]:hover { background: var(--hover); color: var(--text); }
+.mtx thead th.boneh[data-bone]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.mtx thead th.boneh .bh-eye {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-left: 5px;
+  opacity: .3;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.mtx thead th.boneh:hover .bh-eye { opacity: .75; }
+
+.colbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--card);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.colbar[hidden] { display: none; }
+.colbar .cbl { display: inline-flex; align-items: center; gap: 5px; }
+.colbar .cbl .icon { width: 13px; height: 13px; }
+.colbar .cbl b { color: var(--text-2); font-weight: 600; font-family: var(--mono); }
+.colbar .show-all { margin-left: auto; }
+.colbar .hb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.colbar .hb:hover { color: var(--text); border-color: var(--border-2); }
+.colbar .hb .icon { width: 11px; height: 11px; opacity: .55; }
 
 /* ---- 拖拽 ---- */
 .vline {
@@ -936,7 +986,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 }
 /* ---- 转置版：行 = 动画，列 = 骨骼 / 通道 ---- */
 .mtx {
-  width: max(100%, calc(232px + var(--ncol, 1) * 144px));
+  width: max(100%, calc(232px + var(--ncol, 1) * 208px));
 }
 .mtx thead {
   position: sticky;
@@ -985,7 +1035,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 }
 .mtx thead th.boneh .ghost-dot { margin-right: 5px; }
 .mtx thead th.chanh {
-  width: 144px;
+  width: 208px;
   font-family: var(--mono);
   font-size: 10px;
   color: var(--text-3);
@@ -1146,13 +1196,15 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   <div class="intro" id="hint">
     <p>
       <b>行 = 动画，列 = 骨骼 / 通道。</b>格子里的值就是 JSON 里写的原文，<code>variable</code> / <code>query</code> 不代入数字。
-      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。
+      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起它的通道列，只看你关心的骨骼。
     </p>
     <p class="sub">
       <code>this</code> 读到的是"上面所有行在这个通道上的累计"，所以 <code>0.5 - this</code> 等于把该轴设成绝对值；
       <code>override_previous_animation</code> 会在自己这一行把上面的抹掉。示例逐字取自 bedrock-samples v1.26.50.4。
     </p>
   </div>
+
+  <div class="colbar" id="colbar" hidden></div>
 
   <div class="mwrap" id="mwrap"><div id="matrix"></div></div>
 
@@ -1796,7 +1848,8 @@ const SAMPLES = [
    ============================================================ */
 const MOLANG_VARS = {};
 const state = {
-  stack: [], sel: null
+  stack: [], sel: null,
+  hiddenBones: []            // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
 };
 
 function baseCtx(animTime, lifeTime) {
@@ -1854,13 +1907,16 @@ function buildMatrix() {
     perBone.get(ch.bone).add(ch.base);
   }));
   boneOrder.sort((a, b) => boneRank(a) - boneRank(b) || String(a).localeCompare(String(b)));
-  const groups = boneOrder.map(bone => {
+  const allBones = boneOrder.slice();
+  /* 隐藏骨骼只影响「显示哪几列」：下面 allBones 用来渲染恢复栏，rows/cells 的判定完全不看它 */
+  const shown = boneOrder.filter(b => state.hiddenBones.indexOf(b) < 0);
+  const groups = shown.map(bone => {
     const bases = CH_ORDER.filter(b => perBone.get(bone).has(b));
     return { bone, bases };
   });
   const cols = [];
   groups.forEach(g => g.bases.forEach(base => cols.push({ bone: g.bone, base })));
-  return { rows, groups, cols, bounds: rows.filter(r => r.ovOn) };
+  return { rows, groups, cols, bounds: rows.filter(r => r.ovOn), allBones };
 }
 
 /* 这一格是否被下面某个 override 行清掉 */
@@ -1891,9 +1947,7 @@ function chanHTML(ch, base) {
     return '<div class="vec">' + ['x', 'y', 'z'].map((ax, i) =>
       '<span><i>' + ax + '</i>' + litHTML(ch.value[i], base) + '</span>').join('') + '</div>';
   }
-  const ks = ch.keys;
-  const head = ks.length > 5 ? ks.slice(0, 2) : ks;
-  const tail = ks.length > 5 ? ks[ks.length - 1] : null;
+  /* 关键帧：全部列出，一帧一行，不折叠（旧版只列前 2 帧 + 末帧，把中间吞了） */
   const line = k => {
     const jump = JSON.stringify(k.pre) !== JSON.stringify(k.post);
     return '<span' + (jump ? ' class="jump"' : '') + ' title="' + k.t.toFixed(3) + 's' + (jump ? ' · pre/post 跳变' : '') + '">'
@@ -1901,9 +1955,7 @@ function chanHTML(ch, base) {
       + k.post.map(v => litHTML(v, base)).join('<u>,</u>')
       + '</span>';
   };
-  let html = '<div class="keys">' + head.map(line).join('');
-  if (tail) html += '<span class="more">… 共 ' + ks.length + ' 帧</span>' + line(tail);
-  return html + '</div>';
+  return '<div class="keys">' + ch.keys.map(line).join('') + '</div>';
 }
 
 function badgesFor(item) {
@@ -1972,12 +2024,17 @@ function render() {
   const stack = state.stack;
   empty.hidden = stack.length > 0;
   host.hidden = stack.length === 0;
-  if (!stack.length) { host.innerHTML = ''; updateStatus(); return; }
+  if (!stack.length) { host.innerHTML = ''; renderColbar([]); updateStatus(); return; }
 
-  const { rows, groups, cols, bounds } = buildMatrix();
+  const { rows, groups, cols, bounds, allBones } = buildMatrix();
 
   const head1 = '<th class="corner" rowspan="2" scope="col">动画 <span class="dim">/ 骨骼 →</span></th>'
-    + groups.map(g => '<th class="boneh" scope="colgroup" colspan="' + g.bases.length + '">' + boneLabel(g.bone) + '</th>').join('');
+    + groups.map(g => '<th class="boneh" scope="colgroup" colspan="' + g.bases.length + '"'
+      + ' data-bone="' + escapeHtml(g.bone) + '" tabindex="0" role="button"'
+      + ' aria-label="隐藏 ' + escapeHtml(g.bone) + ' 的通道列"'
+      + ' title="点一下隐藏 ' + escapeHtml(g.bone) + ' 的通道列">'
+      + boneLabel(g.bone)
+      + '<span class="bh-eye" aria-hidden="true">' + ic('eyeOff') + '</span></th>').join('');
   const head2 = groups.map(g => g.bases.map(b =>
     '<th class="chanh" scope="col" data-bone="' + escapeHtml(g.bone) + '">' + b + '</th>').join('')).join('');
 
@@ -1996,7 +2053,51 @@ function render() {
 
   host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>' + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + '</tbody></table>';
   host.style.setProperty('--ncol', cols.length);
+  renderColbar(allBones);
   updateStatus();
+}
+
+/* 已隐藏的骨骼：只在有隐藏项时出现；点 chip 恢复单个，右侧一键全恢复 */
+function renderColbar(allBones) {
+  const bar = $('#colbar');
+  if (!bar) return;
+  const hidden = state.hiddenBones.filter(b => allBones.indexOf(b) >= 0);
+  if (!hidden.length) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  bar.innerHTML = '<span class="cbl" title="只影响显示：this 与 override 的判定照旧按全部骨骼算">'
+    + ic('eyeOff') + '已隐藏 <b>' + hidden.length + '</b> 根骨骼</span>'
+    + hidden.map(b => '<button class="hb" data-show="' + escapeHtml(b) + '" title="恢复 ' + escapeHtml(b) + ' 的通道列">'
+      + escapeHtml(b) + ic('close') + '</button>').join('')
+    + '<button class="btn tiny show-all" id="colShowAll">全部显示</button>';
+}
+
+function hideBone(bone) {
+  if (!bone || state.hiddenBones.indexOf(bone) >= 0) return;
+  state.hiddenBones.push(bone);
+  render(); save();
+  toast('已隐藏 <code>' + escapeHtml(bone) + '</code> 的通道列 · 矩阵上方可恢复');
+}
+
+function showBone(bone) {
+  const n = state.hiddenBones.length;
+  state.hiddenBones = state.hiddenBones.filter(b => b !== bone);
+  if (n === state.hiddenBones.length) return;
+  render(); save();
+}
+
+function initColbar() {
+  const bar = $('#colbar');
+  bar.addEventListener('click', e => {
+    const show = e.target.closest('[data-show]');
+    if (show) { showBone(show.dataset.show); return; }
+    if (e.target.closest('#colShowAll')) {
+      const n = state.hiddenBones.length;
+      if (!n) return;
+      state.hiddenBones = [];
+      render(); save();
+      toast('已恢复 ' + n + ' 根骨骼的通道列', 'good');
+    }
+  });
 }
 
 function updateStatus() {
@@ -2041,6 +2142,8 @@ function moveRow(from, to) {
 function initMatrix() {
   const host = $('#matrix');
   host.addEventListener('click', e => {
+    const bh = e.target.closest('th.boneh[data-bone]');
+    if (bh) { hideBone(bh.dataset.bone); return; }
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const th = btn.closest('th.rowh');
@@ -2050,8 +2153,16 @@ function initMatrix() {
     if (btn.dataset.act === 'toggle') toggleItem(item);
     else if (btn.dataset.act === 'del') removeItem(item);
   });
-  /* 键盘等价操作：聚焦行首抓手后 ↑ ↓ 换序，Home / End 到首末行 */
+  /* 键盘等价操作：聚焦行首抓手后 ↑ ↓ 换序，Home / End 到首末行；聚焦骨骼表头后 Enter / 空格隐藏 */
   host.addEventListener('keydown', e => {
+    const bh = e.target.closest && e.target.closest('th.boneh[data-bone]');
+    if (bh) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        hideBone(bh.dataset.bone);
+      }
+      return;
+    }
     const grip = e.target.closest && e.target.closest('.grip');
     if (!grip) return;
     const th = grip.closest('th.rowh');
@@ -2163,7 +2274,8 @@ function save() {
       items: state.stack.map(i => ({
         animKey: i.animKey, def: i.def, fileName: i.fileName,
         enabled: i.enabled, color: i.color
-      }))
+      })),
+      hiddenBones: state.hiddenBones
     }));
   } catch (e) { /* 存不下就算了 */ }
 }
@@ -2181,6 +2293,9 @@ function load() {
       it.color = d.color || STACK_COLORS[0];
       return it;
     });
+    state.hiddenBones = Array.isArray(data.hiddenBones)
+      ? data.hiddenBones.filter(b => typeof b === 'string')
+      : [];
     return true;
   } catch (e) { return false; }
 }
@@ -2540,7 +2655,7 @@ function initExport() {
   $('#btnExport').addEventListener('click', () => {
     const json = JSON.stringify(exportPayload(), null, 2);
     openModal('导出当前叠加结果',
-      '<p class="note">当前时间点每个骨骼三个通道的最终值（已按顺序叠加、算上权重、应用 override 与 -this）。</p>'
+      '<p class="note">导出的不是算完的数值：它是当前动画栈的<strong>顺序</strong>、每个 override 的<strong>边界</strong>，以及每个通道在 JSON 里的<strong>原文</strong>（<code>raw</code> / <code>usesThis</code> / <code>usesMolang</code>），Molang 不求值。</p>'
       + '<textarea id="exportArea" readonly spellcheck="false" style="min-height:260px;color:#a9c6c1">' + escapeHtml(json) + '</textarea>',
       '<button class="btn" data-close="1">关闭</button>'
       + '<button class="btn" id="copyExp">复制</button>'
@@ -2566,14 +2681,15 @@ function initDocs() {
     const docs = [
       ['order', '这张表怎么读', '<strong>一行 = 一段动画，一列 = 骨骼下面的一个通道</strong>（<code>head · rotation</code> 就是一列）。上面第一行先算，越往下越靠后叠。单元格里的值就是 JSON 里写的那几个字面量，<strong>没有代入时间、也没有算出数字</strong> —— 表达式原样摆着，因为你要看的是「作者写了什么」。'],
       ['layers', '顺序就是语义', '拖动行首的抓手可以把整段动画上下挪。<code>this</code> 读到的是它<strong>上面</strong>所有行的累计，<code>override</code> 只抹掉它上面那些行 —— 所以换顺序 = 换结果，这也是这套动画系统里最容易踩的坑。'],
-      ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。带 this 的格子会标 <code>this</code> 徽标并淡紫底。'],
+      ['eyeOff', '只看想看的骨骼', '点<strong>骨骼表头</strong>（<code>root</code> / <code>head</code> 那一格）可以把它下面的通道列收起来，腾出横向空间。收起来只是不显示，<strong>不影响 <code>this</code> 与 <code>override</code> 的判定</strong>；矩阵上方会出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。'],
+      ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。只有<strong>引用了 this 的那一条轴</strong>会标蓝，行头另有 <code>this ×N</code> 计数。'],
       ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。表里用琥珀色的行边 + 一条通栏说明带标出来，上面被抹掉的格子会划掉并标 <code>⟂</code>。'],
-      ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。格子只列前 3 帧和最后一帧，<code>… 共 N 帧</code> 是可展开的全部数量。<code>pre</code> 与 <code>post</code> 不同时那一帧会加下划线（在这一点跳变）。<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
+      ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。每个关键帧一行、按时间排，<strong>全部列出不折叠</strong>，时间标在行首。<code>pre</code> 与 <code>post</code> 不同时那一帧标成琥珀色（在这一点跳变）；<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
       ['molang', '表达式', '<code>variable.*</code> / <code>query.*</code> / <code>math.*</code> 都是照抄的原文，不代入数字。所以这张表既能当阅读器，也能拿来核对「我到底写没写对」。'],
       ['clock', '时长与循环', '行头显示 <code>animation_length</code>（缺省取最后一帧）和 <code>loop</code> 模式：<code>loop</code> 循环 / <code>hold</code> 停在末帧 / <code>once</code> 播完即止。'],
       ['fx', '事件', '<code>sound_effects</code> / <code>particle_effects</code> 有内容时行头会显示 <code>fx ×N</code>，鼠标悬停看名字。'],
       ['inbox', '示例库', '顶部「示例库」分三组：<strong>bedrock-samples 原生</strong>（默认栈）、<strong>FMBE 基础</strong>、<strong>FMBE 进阶 · 3D 方块</strong>。后两组列的是 wiki 页面里出现的原版动画，JSON 与仓库里的文件一致，没有改写。'],
-      ['keyboard', '操作', '拖动行首抓手换顺序 · 点行标题或眼睛启用/停用 · 点垃圾桶移除这一行 · <kbd>拖文件</kbd>进窗口导入 · 顶部「导出」看当前顺序与所有原始值。'],
+      ['keyboard', '操作', '拖动行首抓手换顺序 · 点行标题或眼睛启用/停用 · 点骨骼表头收起该骨骼的通道列 · 点垃圾桶移除这一行 · <kbd>拖文件</kbd>进窗口导入 · 顶部「导出」看当前顺序与所有原始值。'],
       ['brace', '文件来源', '示例逐字取自 bedrock-samples <code>v1.26.50.4</code> 的 <code>resource_pack/animations/*.json</code>。真实文件里有 6 个带 <code>//</code> 注释、不是严格 JSON，直接拖进来也能解析。']
     ];
     openModal('语义说明与图例', '<div class="docs">' + docs.map(d =>
@@ -2594,6 +2710,7 @@ function boot() {
   initExport();
   initDocs();
   initMatrix();
+  initColbar();
   initDrag();
   $('#stHint').textContent = HINT_DEFAULT;
   render();

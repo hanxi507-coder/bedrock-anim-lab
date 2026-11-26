@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 14:22（接手第二次改动）** · `index.html` **2609 行 / 102,908 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 14:52（接手第三次改动）** · `index.html` **2726 行 / 108,287 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -41,6 +41,9 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 | 蓝色表达式 | 这一条轴（x/y/z 单条）的原文里出现 `this` |
 | 琥珀色横带 | 这一行带 `override_previous_animation: true`，它把上面这些行在它碰到的骨骼上全抹掉。**该行被眼睛停用时横带不出现**（见 §5.2） |
 | 格子划掉 + `⟂` | 这一格被下面的某一行 override 抹掉了（`⟂` 在格子**右下角**，不是右上角） |
+| 收起的骨骼列 | 点骨骼表头可把该骨骼的通道列收起来，矩阵上方出现「已隐藏 N 根骨骼」+ 恢复按钮；**只影响显示，不参与判定** |
+
+**格子里的值一律完整显示**：表达式换行不截断，关键帧一帧一行全列（2026-11-26 改，之前是省略号 + 只列前 2 帧）。代价是行高会随内容变高（`player.sleeping` 的 root.position 那种一行 140 多字符的会撑到 300px 上下）。
 
 一句话对比：**`this` 是“往上读到哪”，`override` 是“往上全抹掉”。换顺序 = 换结果。**
 
@@ -71,9 +74,9 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        102908 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       142800 B  默认 5 行矩阵截图（深色，1723×857，2026-11-26 重拍）
-├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮，2026-11-26 重拍）
+├─ index.html        108287 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       129945 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：完整值 + 骨骼表头小眼睛）
+├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
 ├─ HANDOVER.md                 本文
@@ -153,14 +156,14 @@ D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
 "rotation": { "0.0": [0,0,0], "0.5": { "pre": [0,0,0], "post": [10,0,0] }, "1.0": [10,0,0] }
 ```
 
-矩阵里对关键帧：**≤ 5 帧全列；> 5 帧只列前 2 帧 + 最后一帧**，中间插一条 `… 共 N 帧`；`pre ≠ post` 的那一帧加下划线（跳变点）。逻辑在 `chanHTML()`：
+矩阵里对关键帧：**一帧一行全部列出，不折叠**（2026-11-26 起；之前只列前 2 帧 + 末帧，中间用 `… 共 N 帧` 吞掉）。时间标在行首，`pre ≠ post` 的那一帧标琥珀色（跳变点）。逻辑在 `chanHTML()`：
 
 ```js
-const head = ks.length > 5 ? ks.slice(0, 2) : ks;   // 注意是 2 不是 3
-const tail = ks.length > 5 ? ks[ks.length - 1] : null;
+/* 关键帧：全部列出，一帧一行，不折叠 */
+return '<div class="keys">' + ch.keys.map(line).join('') + '</div>';
 ```
 
-（旧文档写「前 3 帧」，与代码不符；已按代码改正。若要改成 3 帧，同时改这两行即可。）
+真实数据里 88% 的通道 ≤ 8 帧，但 bedrock-samples 里最长有 **52 帧**（`bee.animation.json` 的 `leftwing_bone / rotation`）。全列会让那一行很高 —— 这是「完整优先」的代价，别为了好看又加回 slice。
 
 ### 5.5 Molang 求值层（现状：**已实现但没接线**）
 
@@ -185,7 +188,8 @@ header.nav
   #btnTheme   深浅主题（icon，内含 #icoThemeDark / #icoThemeLight）
 
 main.shell
-  #hint     两行说明（列/行是什么、this 与 override 怎么读）
+  #hint     两行说明（列/行是什么、this 与 override 怎么读、点骨骼表头可收起列）
+  #colbar   已隐藏骨骼提示栏（默认 hidden：`已隐藏 N 根骨骼` + 骨骼 chip + 全部显示）
   .mwrap > #matrix   矩阵表（.mtx）
   #empty    空状态（虚线卡片）
 
@@ -206,13 +210,15 @@ footer.statusbar
 
 | 位置 | 内容 |
 | --- | --- |
-| L751 | CSS 里的 `/* ---------- 示例库 ---------- */`（**注意：JS 段也有同名注释，用 IndexOf 定位极易踩坑，见 §12**） |
-| L1206 | `ICON`：全部内联 SVG（Lucide 风格，`class="icon"`，stroke 1.75） |
-| L1239–1240 | `THEME_KEY='bedrock-anim-lab.theme'`、`LS_KEY='bedrock-anim-lab.v4'` |
-| L1639 | `STACK_COLORS`（行首圆点/色条配色，8 色循环） |
-| L1726 | `SAMPLE_GROUPS`：`{id,title,note,keys[]}`，三组 core / fmbe / adv，keys 引用同一份 `SAMPLES` |
-| L1757 | `SAMPLES`：12 条 `{key, group, label, note:"", file, on, def}`，`on:true` 的 5 条构成默认栈 |
-| L1788 | `state = { stack: [], sel: null }` |
+| L801 | CSS 里的 `/* ---------- 示例库 ---------- */`（**注意：JS 段也有同名注释，用 IndexOf 定位极易踩坑，见 §12**） |
+| L1267 | `ICON`：全部内联 SVG（Lucide 风格，`class="icon"`，stroke 1.75） |
+| L1300–1301 | `THEME_KEY='bedrock-anim-lab.theme'`、`LS_KEY='bedrock-anim-lab.v4'` |
+| L1701 | `STACK_COLORS`（行首圆点/色条配色，8 色循环） |
+| L1788 | `SAMPLE_GROUPS`：`{id,title,note,keys[]}`，三组 core / fmbe / adv，keys 引用同一份 `SAMPLES` |
+| L1819 | `SAMPLES`：12 条 `{key, group, label, note:"", file, on, def}`，`on:true` 的 5 条构成默认栈 |
+| L1850 | `state = { stack: [], sel: null, hiddenBones: [] }` |
+
+> 上面的行号是 2026-11-26 14:52 的；文件一改就会漂，**优先按名字搜**。
 
 ### 7.2 解析
 
@@ -228,24 +234,27 @@ footer.statusbar
 
 | 函数 | 职责 |
 | --- | --- |
-| `buildMatrix()` | 汇总所有启用行 → `{cols, rows, bounds}`；`cols` = 动画列（顺序即 `state.stack` 顺序），`rows` = 骨骼/通道行；`bounds` = 每个 override 行清掉了哪些骨骼 |
+| `buildMatrix()` | 汇总 → `{rows, groups, cols, bounds, allBones}`。`rows` = 动画行（顺序即 `state.stack`），`groups` = 骨骼分组（**已按 `state.hiddenBones` 过滤**），`cols` = 骨骼 × 通道列，`bounds` = 生效中（`ovOn`）的 override 行，`allBones` = 数据里出现的全部骨骼（给恢复栏用，不受隐藏影响） |
 | `boneRank()` / `BONE_RANK` / `CH_ORDER` | 列排序：`root, body, head, hat, cape, back, leftarm, rightarm, leftleg, rightleg, leftitem, rightitem` 优先，其余按字母；通道固定 `position, rotation, scale` |
-| `deadAt(bone, si, bounds)` | 下方是否存在 override 行且碰到该骨骼 → 该格划掉 |
-| `fmtNum(n, base)` | 数字格式化（rotation 1 位小数，其余 2 位，去尾零） |
+| `deadAt(bone, si, bounds)` | 下方是否存在生效中的 override 行且碰到该骨骼 → 该格划掉 |
+| `fmtNum(n, base)` | 数字格式化（rotation / 时间 2 位，其余 3 位，去尾零） |
 | `litHTML(v, base)` | 单条轴渲染：字符串 → `<code class="expr">`，含 `this` 再加 `.th` 蓝色；数字 → `.num` |
-| `chanHTML(ch, base)` | 一个通道 → x/y/z 三行；关键帧取前 3 + 末帧 |
+| `chanHTML(ch, base)` | 一个通道 → x/y/z 三行；关键帧**全部列出**、一帧一行（不再 slice） |
 | `badgesFor(item)` / `rowHead(r)` | 行首：抓手、序号、动画名、时长、loop 图标、chips（override / this / molang / keyframe / fx）、眼睛（启停）、垃圾桶（删除） |
 | `cellHTML(row, col, bounds)` | 单格；空格输出 `·`，被 override 抹掉的加 `.dead` |
-| `render()` | 重建整张表 + 写 `--ncol`（列数）+ 切换 `#empty` |
-| `updateStatus()` | 写状态栏 |
+| `render()` | 重建整张表 + 写 `--ncol`（列数）+ 切换 `#empty` + 调用 `renderColbar()` |
+| `renderColbar(allBones)` | 画「已隐藏 N 根骨骼」栏：只列当前数据里真的存在、且被隐藏的骨骼；每个是一个 `data-show` 按钮，右侧「全部显示」 |
+| `hideBone(bone)` / `showBone(bone)` | 隐藏 / 恢复单根骨骼的列，`render(); save()`，隐藏时 toast 提示去哪恢复 |
+| `updateStatus()` | 写状态栏（**只统计启用行的骨骼/通道，不受隐藏影响**） |
 
 ### 7.4 交互
 
 | 函数 | 职责 |
 | --- | --- |
 | `initDrag()` | 纵向拖行换序：pointerdown 抓 `.grip` / 行首 → 生成 `.hline` 指示线 + `.dragtag`；用 `clientY` 与各行中线比较算插入点；`pointerup` 落库 `state.stack` 并 `render(); save()` |
-| `initMatrix()` | 表内点击委托：`[data-act]` = toggle / remove |
+| `initMatrix()` | 表内点击委托：点骨骼表头 → `hideBone()`；`[data-act]` = toggle / remove。键盘：骨骼表头聚焦后 Enter / 空格隐藏，抓手聚焦后 ↑↓ / Home / End 换序 |
 | `toggleItem()` / `removeItem()` | 启停 / 删除一行 |
+| `initColbar()` | 「已隐藏」栏点击委托：`[data-show]` → `showBone()`，`#colShowAll` → 清空 `state.hiddenBones` |
 | `initSamples()` | 示例库：`click` 委托处理「全选」「替换整栈」「清空」；`change` 处理单个复选框 → `libToggle()` → `libSyncRows()` |
 | `libToggle(key, on)` | **勾上即加入**（`newItems` + 强制 `enabled = true`），**取消即移除** |
 | `libSyncRows()` | 按 `state.stack` 回写弹窗里的勾选态 / `.in-stack` / 「已在栈里」标签 |
@@ -254,9 +263,9 @@ footer.statusbar
 | `initImport()` / `ingestFiles()` / `walkEntry()` | 文件选择 / 全页拖拽（含文件夹递归）/ 多动画时弹勾选列表 `pickItems()` |
 | `initPaste()` | 粘贴 JSON 弹窗 |
 | `initExport()` / `exportPayload()` | 导出当前顺序 + 每通道原文（`cells[].channels[].raw`、`usesThis`、`usesMolang`） |
-| `initDocs()` | 说明弹窗（布局怎么读 / this / override / 关键帧 / 表达式 / 示例库 / 文件来源） |
+| `initDocs()` | 说明弹窗（布局怎么读 / this / override / 关键帧 / 表达式 / 示例库 / 收起骨骼列 / 文件来源） |
 | `applyTheme()` / `initTheme()` | 双主题，跟随 `prefers-color-scheme`，写 `<html data-theme>` |
-| `boot()` | `initTheme → initModal → initSamples → initMatrix → initDrag → initImport → initPaste → initExport → initDocs → load() || loadSamples() → render()` |
+| `boot()` | `initTheme → initModal → initSamples → initMatrix → initColbar → initDrag → initImport → initPaste → initExport → initDocs → load() || loadSamples() → render()` |
 
 ---
 
@@ -264,11 +273,20 @@ footer.statusbar
 
 ```js
 const LS_KEY = 'bedrock-anim-lab.v4';
-// save(): { v: 4, items: [{ animKey, def, fileName, enabled, color }] }
+// save(): {
+//   v: 4,
+//   items: [{ animKey, def, fileName, enabled, color }],
+//   hiddenBones: ['head', 'root']     // 可选；纯显示偏好
+// }
 // load(): 必须 data.v === 4 才采用，否则回落到默认示例
+//         hiddenBones 缺失 / 不是数组都按 [] 处理（老数据照样能读）
 ```
 
 **改动存储结构时必须同时改 `v`**，否则老数据会被读成坏数据（历史上踩过一次：`LS_KEY` 没定义 → 永久不落盘；`v` 不匹配 → 改完刷新看不见效果）。
+
+例外：`hiddenBones` 是**可选字段**，加了它没有升 `v` —— 升 `v` 会把别人的动画栈整个丢掉，代价比兼容读取大。判断标准：**新增可选字段可以不动 `v`，改动已有字段语义必须升**。
+
+`hiddenBones` 里的骨骼名可能不在当前栈里（比如换了示例组），`renderColbar()` 只显示当前数据里存在的那些；`buildMatrix()` 里过滤时也不在乎（不存在的骨骼本来就没有列）。
 
 ---
 
@@ -282,7 +300,9 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 字号：正文 13–14 / 辅助 11.5–12 / 微标 10.5；数字用等宽（`--mono`，JetBrains Mono 族）
 - 图标统一 `class="icon"`（16px，stroke 1.75），**不许用 emoji 当功能图标**
 - 动效 120–180ms（hover）/ 200–280ms（弹窗），并尊重 `prefers-reduced-motion`
-- 矩阵列宽：标签列 232px，通道列 144px，`width: max(100%, calc(232px + var(--ncol) * 144px))`，窄屏横向滚动
+- 矩阵列宽：标签列 232px，通道列 **208px**（2026-11-26 从 144 加宽，因为格子改成完整换行后 144 会把 `variable.tcos0 * -1.4` 这种常见表达式折成两行），`width: max(100%, calc(232px + var(--ncol) * 208px))`，窄屏横向滚动
+- 格子文字**不截断**：`.expr` 用 `white-space: pre-wrap` + `overflow-wrap: break-word`（`break-word` 而不是 `anywhere`，避免把 `query.body_y_rotation` 从中间劈开，除非单个 token 真的超过一行）；`.keys span` 同理
+- `table-layout: fixed`：列宽由第一行（`thead` 的 corner + 骨骼 colspan）决定，所以改列宽要动 `--ncol` 那个公式和 `.chanh` 的 `width` 两处
 - 断点：1023px、767px（767 以下隐藏部分说明、缩列宽）
 
 状态语义色：`--accent`（交互）/ 琥珀（override 边界）/ 蓝 `#93C5FD`（`this`）/ 灰（被抹掉）。
@@ -296,6 +316,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 | 操作 | 结果 |
 | --- | --- |
 | 拖行首抓手上下拖 | 换行序；松手即重算 `⟂` 与蓝标 |
+| 点骨骼表头（`root` / `head` 那一格） | 收起该骨骼的全部通道列；矩阵上方出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。**只影响显示** |
 | 点眼睛 | 该行停用/启用（停用行不参与 `this` 与 override 判定） |
 | 点垃圾桶 | 从栈里删除 |
 | 顶栏「示例库」 | 打开弹窗；**勾选立刻增删**，无确认按钮；组头有「全选」「**替换整栈**」（清掉现有全部，只留这一组） |
@@ -312,6 +333,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 | `Tab` / `Shift+Tab` | 依次聚焦：抓手 → 眼睛 → 垃圾桶 → 下一行（焦点头有 `:focus-visible` 焦点环） |
 | 抓手聚焦后 `↑` / `↓` | 当前行上移 / 下移一行（等价于拖动） |
 | 抓手聚焦后 `Home` / `End` | 移到栈顶 / 栈底 |
+| 骨骼表头聚焦后 `Enter` / `Space` | 收起该骨骼的通道列（等价于点表头） |
 | `Enter` / `Space`（焦点在按钮上） | 触发该按钮（浏览器原生） |
 
 移动后焦点保持在被移动那一行的抓手上，可直接连按；状态栏 `#stHint` 会显示「第 N 行：动画名」。
@@ -323,14 +345,15 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 1. ~~蓝色 `this` 高亮未做浏览器验证~~ → **已实测通过**（浅色主题，`.expr.th` 47 个 / 普通 `.expr` 48 个；computed text `rgb(29,78,216)`，bg `rgba(37,99,235,.1)`，border `rgba(37,99,235,.34)`；`td.hasthis` = 0）。`humanoid.sneaking` 的 body.rotation 只有 x 变蓝，`armor_stand.athena_pose` 整行蓝，`player.sleeping` 上方琥珀带 + `head`/`root` 划掉，均符合预期。
 2. ~~键盘导航缺失~~ → **已补**（见 §10 键盘表与附录 B §12）。
 3. 浅色主题下矩阵未逐项复查（`.bandrow` 琥珀带、`.dead` 灰化在浅色下的对比度已截图看过，可接受；`.expr.th` 已实测）。
-4. ~~`preview.png` / `samples.png` 落后于当前代码~~ → **2026-11-26 已按当前代码重拍**（深色、默认 5 行，1723×857）。注意旧图里格内的 `this` 小徽标已被移除，现在只有**逐轴蓝色表达式** + 行首 `this ×N` chip，看旧图别以为丢了功能。
+4. ~~`preview.png` / `samples.png` 落后于当前代码~~ → **2026-11-26 已按当前代码重拍**（深色、默认 5 行，1848×857，截图时窗口 1466 CSS px）。注意旧图里格内的 `this` 小徽标已被移除，现在只有**逐轴蓝色表达式** + 行首 `this ×N` chip，看旧图别以为丢了功能。
 5. **Molang 求值链是死代码**（见 §5.5）：要么接回来做「求值」视图，要么删除。
 6. `applyWeight()` / `fmtV()` 无调用点。
 7. 矩阵版 `initDrag()` **没有自动滚动**（v3 卡片版有过 110px 边缘自动滚动）；行数多时拖到屏幕外会吃力，可补。
 8. ~~无 git 仓库~~ → **已 `git init`**（`main`，基线 `0eeaf25`；`.gitattributes` 用 `* -text` 锁死行尾，避免 Windows autocrlf 改动字节）。提交身份是仓库内的 `DUANQIUYI <duanqiuyi@localhost>`，想换就 `git config user.email ...`。
 9. 移动端只做了「不横向溢出」级别的适配，矩阵本身必须横向滚动（列多时），可考虑冻结骨骼表头行。
 10. 示例库分组说明 `.lib-note` 用 `--text-3`（深色 #71717A on #141417 ≈ **3.8:1**），11.5px 正文低于 WCAG AA 4.5:1，截图里几乎看不清。改 `--text-2`（≈5.9:1）即可，但会动视觉层级，**未擅自改**。
-11. `load()` 里 `!data.items.length` 直接返回 false，于是**把行全删光再刷新，5 条默认示例会自己回来**。空状态（`#empty`）其实是合法状态，是否要持久化空栈待定。
+11. **行高完全由内容决定**：`player.sleeping` 的 root.position 有 140+ 字符，那一行约 338px；`bee` 那种 52 帧的通道会更高。这是「完整显示」的必然代价，没有截断。若以后嫌太高，正确做法是加一个「完整 / 紧凑」视图开关（默认完整），**不要偷偷把 slice 或省略号加回来**。
+12. `load()` 里 `!data.items.length` 直接返回 false，于是**把行全删光再刷新，5 条默认示例会自己回来**。空状态（`#empty`）其实是合法状态，是否要持久化空栈待定。
 
 ---
 
@@ -360,10 +383,23 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 5. 导入 `C:\Users\DUANQIUYI\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈；
 6. **点掉 `player.sleeping` 的眼睛** → 琥珀带消失、`sneaking`/`athena_pose` 的 `head` 格子恢复成正常值（`⟂` 清零，状态栏变成「5 个动画（4 启用）· 7 根骨骼 · 10 个通道」）；再点亮 → 全部复原。这条是 2026-11-26 修的 bug 的回归用例。
 7. 示例库点「**替换整栈**」（FMBE 基础）→ 栈里只剩这 8 行，顺序 `sleeping → creeper.swelling → dragon.neck_head_movement → warden.move → attack.rotations → parrot.moving → minecart.move → parrot.dance`，toast 报「移除 4 个」；再对「bedrock-samples 原生」点一次 → 回到默认 5 行。
+8. **完整显示**：`sleeping` 的 `root.position` 那格要能看到完整的 `24.0 * math.cos(query.body_y_rotation) * …` 一直到最后一个 `)`，**没有省略号**；这一行约 338px 高属正常。
+9. **收起骨骼**：点表头 `head` → `head` 的两列消失，上方出现「已隐藏 1 根骨骼 · head× · 全部显示」；点 `head×` 或「全部显示」→ 复原；刷新页面后隐藏状态仍在（`localStorage` 里的 `hiddenBones`）。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 14:52 · 通道值完整显示 + 骨骼列可收起
+
+- **不再折叠**：`.expr` 去掉 `text-overflow: ellipsis` + `nowrap`，改 `pre-wrap` + `break-word`；关键帧从「前 2 帧 + 末帧」改成**全部列出**。列宽 144 → 208px（不然常见的 20 字符表达式会折两行）。
+- **骨骼列可收起**：点表头（`root` / `head` 那一格）收起该骨骼的通道列；`#colbar` 显示「已隐藏 N 根骨骼」+ chip + 全部显示；`state.hiddenBones` 落 `localStorage`（可选字段，未升 `v`）。
+- **顺手修的文案**：
+  - 导出弹窗写着「当前时间点每个骨骼三个通道的最终值（已按顺序叠加…）」—— 实际导出的是顺序 + 边界 + 原文，**不求值**，已改。
+  - 说明弹窗「关键帧只列前 3 帧」「this 徽标 + 淡紫底」都是旧版描述，已改；新增「只看想看的骨骼」卡片。
+  - 顶部说明补一句「点骨骼表头可以收起它的通道列」。
+- **验证**（bsk + 8765）：长表达式完整换行（无省略号）；点 `head` 表头 → 列消失 + 提示栏出现；点 chip / 全部显示 → 复原；隐藏后刷新 → 仍在；把 8 根骨骼全部隐藏 → 表格只剩行首，不崩。
+- `preview.png` 重拍（1848×857，深色）。`samples.png` 未变（示例库弹窗这轮没动）。
 
 ### 2026-11-26 14:22 · 示例库「整套加入」改成「替换整栈」+ FMBE 组顺序对齐 wiki
 
