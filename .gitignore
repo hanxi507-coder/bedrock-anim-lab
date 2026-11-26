@@ -5,4 +5,7 @@ _check.js
 _backup/
 _crop*.png
 
+# 工作区记忆等本地数据
+.workbuddy/
+
 node_modules/
