@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 23:58（接手第十七次改动）** · `index.html` **3454 行 / 140,602 B**，`node --check` 通过。
+> 最后更新：**2026-11-27 00:18（接手第十八次改动）** · `index.html` **3506 行 / 141,395 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        140602 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       178892 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        141395 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       141958 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -234,7 +234,7 @@ header.nav
 body（flex column，`overflow: hidden` —— 整页不滚，只有 .mwrap 滚）
   header.nav
   main.shell（flex: 1 1 auto; min-height: 0; 自身也是 flex column）
-    #hint     两行说明（列/行是什么、this 与 override 怎么读、点骨骼表头可收起列）· flex: none
+    #hint     一行提要（行=动画·列=骨骼/通道 · 上面的行先算 · 整行可拖 · 底部是最终值）+ 右侧「完整说明」按钮 · flex: none
     #colbar   已隐藏骨骼提示栏（默认 hidden：`已隐藏 N 根骨骼` + 骨骼 chip + 全部显示）· flex: none
     .mwrap > #matrix   矩阵表（.mtx）· flex: 1 1 auto; min-height: 0; overscroll-behavior: contain
       └ tbody 最后一行 tr.sumrow = 最终值（sticky bottom；th 里是「最终值 · 不代入时间」，没有时间控件）
@@ -483,6 +483,18 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-27 00:15 · 顶部说明压成一行，把高度还给表格
+
+- 用户反馈：顶部那两段说明占了太多竖向空间，表格被挤扁。
+- 把两段文字（约 5 行、~90px）压成**一行提要** + 右侧「完整说明」按钮：
+  `行 = 动画 · 列 = 骨骼 / 通道 · 上面的行先算（this 读上面的累计）· 按住整行上下拖改顺序 · 底部一行是叠加后的最终值`
+- 删掉的内容不是丢了，本来就在顶栏 `?` 打开的说明弹窗里（「这张表怎么读」「顺序就是语义」「this」「override」等卡片）。`#hintMore` 和 `#btnDocs` 绑的是同一个 `openDocs()`。
+- 净效果：这一块从 ~90px 降到 ~34px，表格多出约 56px ≈ 多半行高度（现在 5 行能看到 4 行半，之前是 3 行半）。
+- 布局：`#hint` 改成 `display:flex; align-items:center`，左边 `.hint-line` 可换行、右边按钮 `flex:none`；窄屏时按钮仍在右侧，文字自己折行。
+- 坑：替换 `initDocs` 里的闭包时，`});` → `};` 的替换误命中了 `initModal` 的同名结尾，导致 `});` 丢失、语法报错；已按上下文精确修复。**以后改这种"箭头函数注册 → 具名函数"的写法，先看清楚有几处一样的收尾。**
+- `preview.png` 重拍。
+
 
 ### 2026-11-26 23:55 · 两种「作废」分开画：override 带底，`- this` 不带
 

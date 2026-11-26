@@ -346,7 +346,51 @@ button, input, select, textarea { font: inherit; color: inherit; }
   overscroll-behavior: contain;
 }
 .shell > #hint, .shell > #colbar { flex: none; }
-.shell > #hint { max-width: 1040px; }        /* 面板加宽了，说明文字仍然按易读行宽收着 */
+.shell > #hint {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 2px 10px;
+}
+.intro .hint-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.intro .hint-line b { font-weight: 600; color: var(--text-2); }
+.intro .hint-line code {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+.intro .sep { color: var(--border-2); }
+.hint-more {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.hint-more .icon { width: 11px; height: 11px; }
+.hint-more:hover { color: var(--text); border-color: var(--border-2); background: var(--hover); }
 .empty {
   display: flex;
   flex-direction: column;
@@ -1381,14 +1425,19 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
 
 <div class="shell">
   <div class="intro" id="hint">
-    <p>
-      <b>行 = 动画，列 = 骨骼 / 通道。</b>格子里的值就是 JSON 里写的原文，<code>variable</code> / <code>query</code> 不代入数字。
-      上下拖动行里的任意位置改顺序（按住整行都能拖）—— <b>上面的行先算</b>。点骨骼表头可以收起通道列（左上角「骨骼」按钮能一次选多根）；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文；表格最底下一行是<b>叠加后的最终值</b>（变量和 query 原样带着，不硬算成数字）。
+    <p class="hint-line">
+      <b>行 = 动画 · 列 = 骨骼 / 通道</b>
+      <span class="sep" aria-hidden="true">·</span>
+      上面的行先算，<code>this</code> 读上面的累计
+      <span class="sep" aria-hidden="true">·</span>
+      按住整行上下拖改顺序
+      <span class="sep" aria-hidden="true">·</span>
+      底部一行是叠加后的最终值
     </p>
-    <p class="sub">
-      <code>this</code> 读到的是"上面所有行在这个通道上的累计"，所以 <code>0.5 - this</code> 等于把该轴设成绝对值；
-      <code>override_previous_animation</code> 会在自己这一行把上面的抹掉。示例逐字取自 bedrock-samples v1.26.50.4。
-    </p>
+    <button class="hint-more" id="hintMore" type="button">
+      完整说明
+      <svg class="icon" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></svg>
+    </button>
   </div>
 
   <div class="colbar" id="colbar" hidden></div>
@@ -3400,7 +3449,7 @@ function initExport() {
 
 /* ---------- 说明 ---------- */
 function initDocs() {
-  $('#btnDocs').addEventListener('click', () => {
+  const openDocs = () => {
     const docs = [
       ['order', '这张表怎么读', '<strong>一行 = 一段动画，一列 = 骨骼下面的一个通道</strong>（<code>head · rotation</code> 就是一列）。上面第一行先算，越往下越靠后叠。单元格里的值就是 JSON 里写的那几个字面量，<strong>没有代入时间、也没有算出数字</strong> —— 表达式原样摆着，因为你要看的是「作者写了什么」。'],
       ['layers', '顺序就是语义', '整行按住都能拖，把整段动画上下挪。<code>this</code> 读到的是它<strong>上面</strong>所有行的累计，<code>override</code> 只抹掉它上面那些行 —— 所以换顺序 = 换结果，这也是这套动画系统里最容易踩的坑。'],
@@ -3421,7 +3470,10 @@ function initDocs() {
     ];
     openModal('语义说明与图例', '<div class="docs">' + docs.map(d =>
       '<div class="doc-card"><h4>' + ic(d[0]) + d[1] + '</h4><p>' + d[2] + '</p></div>').join('') + '</div>');
-  });
+  };
+  $('#btnDocs').addEventListener('click', openDocs);
+  const more = $('#hintMore');
+  if (more) more.addEventListener('click', openDocs);
 }
 
 /* ---------- boot ---------- */
