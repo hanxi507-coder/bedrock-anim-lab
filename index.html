@@ -124,6 +124,10 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   font-feature-settings: "cv11", "ss01";
+  /* 整页不滚：只有矩阵自己的 .mwrap 滚，避免「外层滚一点、表格滚一点」的抢滚轮 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 body.dragging { user-select: none; cursor: grabbing; }
@@ -320,7 +324,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   width: 100%;
   max-width: 1120px;
   margin: 0 auto;
-  padding: 20px 24px 72px;
+  padding: 20px 24px 56px;              /* 底部留出固定状态栏的 40px + 一点缝 */
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   --cols: 108px 112px repeat(3, minmax(64px, 104px)) minmax(140px, 1fr);
 }
 
@@ -332,8 +340,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
   border-radius: var(--r-lg);
   background: var(--card);
   overflow: auto;
-  max-height: calc(100vh - 168px);
+  /* 唯一的滚动容器：吃掉剩余高度，并在头/尾不再把手势传给外面 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
+.shell > #hint, .shell > #colbar { flex: none; }
 .empty {
   display: flex;
   flex-direction: column;
@@ -345,6 +357,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   border-radius: var(--r-lg);
   background: var(--bg-2);
   text-align: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 .empty .icon { width: 26px; height: 26px; color: var(--text-3); }
 .empty h3 { font-size: 14px; font-weight: 600; color: var(--text-2); }
@@ -944,7 +959,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
    ============================================================ */
 @media (max-width: 1023px) {
   .nav { padding: 0 16px; }
-  .shell { padding: 16px 16px 72px; }
+  .shell { padding: 16px 16px 56px; }
   .legend { grid-template-columns: 96px 104px repeat(3, minmax(56px, 1fr)) 132px; }
   .row { grid-template-columns: 96px 104px repeat(3, minmax(56px, 1fr)) 132px; }
   .statusbar { padding: 0 16px; }
@@ -959,7 +974,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   .btn.icon-only { width: 32px; }
   .brand-text small { display: none; }
 
-  .shell { padding: 12px 12px 76px; }
+  .shell { padding: 12px 12px 52px; }
   .toolbar { top: 0; position: static; gap: 8px; padding: 8px; }
   .time { min-width: auto; font-size: 12px; }
   .track { order: 3; flex-basis: 100%; }
@@ -994,6 +1009,14 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   .statusbar .r { display: none; }
   .toasts { right: 12px; left: 12px; bottom: 48px; }
   .toast { max-width: none; }
+}
+
+@media (max-height: 380px) {
+  /* 极端矮窗口（例如放大到 200%）留条退路：整页恢复可滚，表格给固定高度，
+     否则 overflow:hidden 会把表格压没。正常高度下永远只有表格这一个滚动容器。 */
+  body { overflow: auto; }
+  .shell { flex: none; }
+  .mwrap, #empty { flex: none; height: 240px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2206,10 +2229,12 @@ function shortKey(k) {
 
 function render() {
   const host = $('#matrix');
+  const wrap = $('#mwrap');
   const empty = $('#empty');
   const stack = state.stack;
   empty.hidden = stack.length > 0;
   host.hidden = stack.length === 0;
+  wrap.hidden = stack.length === 0;      /* 空栈时连外框一起收掉，否则 flex 会撑出一块空白边框 */
   if (!stack.length) { host.innerHTML = ''; renderColbar([]); updateStatus(); return; }
 
   const { rows, groups, cols, bounds, allBones, shadow } = buildMatrix();

@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 15:52（接手第五次改动）** · `index.html` **2969 行 / 119,931 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 15:52（接手第五次改动）** · `index.html` **2986 行 / 120,631 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -76,8 +76,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        119931 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       148581 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：覆盖率 + 斜纹 + -this 划掉 + 撤销按钮）
+├─ index.html        120631 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       145278 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -200,13 +200,15 @@ header.nav
   #btnDocs    说明（icon）
   #btnTheme   深浅主题（icon，内含 #icoThemeDark / #icoThemeLight）
 
-main.shell
-  #hint     两行说明（列/行是什么、this 与 override 怎么读、点骨骼表头可收起列）
-  #colbar   已隐藏骨骼提示栏（默认 hidden：`已隐藏 N 根骨骼` + 骨骼 chip + 全部显示）
-  .mwrap > #matrix   矩阵表（.mtx）
-  #empty    空状态（虚线卡片）
+body（flex column，`overflow: hidden` —— 整页不滚，只有 .mwrap 滚）
+  header.nav
+  main.shell（flex: 1 1 auto; min-height: 0; 自身也是 flex column）
+    #hint     两行说明（列/行是什么、this 与 override 怎么读、点骨骼表头可收起列）· flex: none
+    #colbar   已隐藏骨骼提示栏（默认 hidden：`已隐藏 N 根骨骼` + 骨骼 chip + 全部显示）· flex: none
+    .mwrap > #matrix   矩阵表（.mtx）· flex: 1 1 auto; min-height: 0; overscroll-behavior: contain
+    #empty    空状态（虚线卡片）· flex: 1 1 auto（空栈时 .mwrap 一起 hidden，否则会多出一块空边框）
 
-footer.statusbar
+footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
   #stAnims  N 个动画（M 启用） | #stBones N 根骨骼 | #stChans N 个通道 | #stHint 拖动行首排序
 
 #modal>#modalTitle/#modalClose/#modalBody/#modalFoot
@@ -256,7 +258,7 @@ footer.statusbar
 | `chanHTML(ch, base, cuts)` | 一个通道 → x/y/z 三行；`cuts[ax]` 是抵消行号时该轴加 `.cut` + 右侧小 `⟂`；关键帧**全部列出**、一帧一行（不再 slice），整通道被抵消时加 `.dead-keys` |
 | `badgesFor(item)` / `rowHead(r, allBones)` | 行首：抓手、序号、动画名、时长、**覆盖率 `骨骼 4/8`**（title 列涉及/未涉及）、loop 图标、chips（override / this / molang / keyframe / fx）、眼睛（启停）、垃圾桶（删除） |
 | `cellHTML(row, col, bounds, shadow)` | 单格：没有该通道时输出 `·`（`.none`）或斜纹（`.bnone`，连骨骼都没有）；有值时按 override（整格 `.dead`）与 `shadow`（逐轴 `.cut`）上标记 |
-| `render()` | 重建整张表 + 写 `--ncol`（列数）+ 切换 `#empty` + 调用 `renderColbar()` |
+| `render()` | 重建整张表 + 写 `--ncol`（列数）+ 切换 `#empty` / `#mwrap`（空栈时两个都 hidden）+ 调用 `renderColbar()` |
 | `renderColbar(allBones)` | 画「已隐藏 N 根骨骼」栏：只列当前数据里真的存在、且被隐藏的骨骼；每个是一个 `data-show` 按钮，右侧「全部显示」 |
 | `hideBone(bone)` / `showBone(bone)` | 隐藏 / 恢复单根骨骼的列，`render(); save()`，隐藏时 toast 提示去哪恢复 |
 | `updateStatus()` | 写状态栏（**只统计启用行的骨骼/通道，不受隐藏影响**） |
@@ -324,6 +326,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 被 `- this` 抹掉的单轴：`.vec span.cut` 透明 42% + 删除线 + 行尾 `<em class="cutmark">⟂</em>`；三条轴全中时改用整格 `.dead`（省掉三个 ⟂，和 override 观感统一）
 - **行头是 sticky 的，背景必须不透明**：`.rowh.ov` 以前用 `--amber-soft`（9% alpha），横向滚动时会透出下面的格子文字、看起来像重影；现在改成 `color-mix(in srgb, var(--amber) 9%, var(--card))` 的实色。以后给 sticky 元素加底色，别直接用带 alpha 的 token
 - 行头 `cursor: grab`（整块可拖），但 `.key` 和 `.acts button` 单独 `cursor: pointer`；抓手图标的视觉尺寸不变，靠 `padding:4px` + 负 margin 把热区撑到 24×29
+- **滚动模型：全页只有一个滚动容器**。`body` 是 `flex column + overflow: hidden`，`.shell` 是 `flex: 1 1 auto; min-height: 0` 的 flex column，`.mwrap` 吃剩余高度并 `overscroll-behavior: contain` —— 这样滚轮/触控板永远只滚表格，滚到头也不会把手势传给页面（以前 `body` 会跟着滚几十像素，看起来像「两层抢滚轮」）。`.mwrap` 不再写死 `max-height: calc(100vh - 168px)`
 - 断点：1023px、767px（767 以下隐藏部分说明、缩列宽）
 
 状态语义色：`--accent`（交互）/ 琥珀（override 边界）/ 蓝 `#93C5FD`（`this`）/ 灰（被抹掉）。
@@ -416,10 +419,19 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 12. **覆盖率与斜纹**：`move` 行头是 `骨骼 4/8`，`root/body/head` 的格子是斜纹；`sneaking` 的 `rightitem` 是斜纹，但 `leftleg.rotation` 这种「有骨骼没通道」是 `·`。
 13. **拖拽范围**：在行头任意位置（动画名、序号、时间那一行）按住往上下拖 5px 以上就能换序，不必瞄准抓手；轻点动画名仍然只是开/关，不会误移。
 14. **横向滚动**：把矩阵横向滚到底，行头（尤其 `player.sleeping` 那条浅琥珀底）必须完全不透明，不能透出下面格子的文字。
+15. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 16:12 · 修「外面滚一层、表格滚一层」的抢滚轮
+
+- 原因：`body` 会滚（`.shell` 底部 padding 72px + `.mwrap` 的 `max-height: calc(100vh - 168px)`，整页比视口高约 70px），而表格自己也是滚动容器。滚轮在表上滚到尽头会把剩余的滚动量传给 body；在说明文字上滚又会让整页动、表格跟着位移。
+- 改法：`body` 改成 `flex column + overflow: hidden`；`.shell` = `flex: 1 1 auto; min-height: 0` 的 flex column；`.mwrap` = `flex: 1 1 auto; min-height: 0; overscroll-behavior: contain`，去掉写死的 `max-height`；底部 padding 72 → 56（状态栏 fixed 40 + 16 缝）。
+- 连带修：空栈时 `.mwrap` 会因 `flex: 1` 撑出一块空白边框，`render()` 里现在连 `#mwrap` 一起 hidden，`#empty` 自己 `flex: 1` 铺满。
+- 实测：`docScroll [685,685]` / `bodyScroll [685,685]` / `bodyCanScroll false`，`mwrap` 高 460、内容 784（只有它在滚），`overscroll-behavior: contain`，表格底边到状态栏 16px。
+- `preview.png` 重拍（表格现在铺满到状态栏上方）。
 
 ### 2026-11-26 15:52 · 行头可拖范围放大 + 修 sticky 行头透明
 
