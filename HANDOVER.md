@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 23:18（接手第十三次改动）** · `index.html` **3449 行 / 139,499 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 23:30（接手第十四次改动）** · `index.html` **3431 行 / 139,315 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -39,7 +39,7 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 | 标记 | 含义 |
 | --- | --- |
 | 蓝色表达式 | 这一条轴（x/y/z 单条）的原文里出现 `this` |
-| 琥珀色横带 | 这一行带 `override_previous_animation: true`，它把上面这些行在它碰到的骨骼上全抹掉。**该行被眼睛停用时横带不出现**（见 §5.2） |
+| 行头的琥珀说明块 | 这一行带 `override_previous_animation: true`，它把上面这些行在它碰到的骨骼上全抹掉；行头写「head, root 从这里重算」。**该行被眼睛停用时这块不出现**（见 §5.2） |
 | 格子划掉 + `⟂` | 这一格被下面的某一行 override 抹掉了（`⟂` 在格子**右下角**，不是右上角） |
 | 单轴划掉 + 右侧小 `⟂` | 这一条轴被下面的 `- this` 写成了绝对值，上面的累积不算了（三条轴都这样时按整格划掉，只画一个 `⟂`） |
 | 收起的骨骼列 | 点骨骼表头可把该骨骼的通道列收起来，矩阵上方出现「已隐藏 N 根骨骼」+ 恢复按钮；**只影响显示，不参与判定** |
@@ -78,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        139499 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       177675 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        139315 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       178289 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -151,12 +151,12 @@ D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
 这一行带 `true` 时，它先把自己碰到的骨骼清成 `0/0/0`（scale 是 `1/1/1`），再写自己的值 —— 也就是**把上面所有行在这些骨骼上的累积全抹掉**。
 
 在矩阵里表现为：
-- 该行上方插入一条琥珀色横带（原文）：`上面的行在 head, root 上的累积到这一行作废 —— 下面几行从这个新起点重新叠`；
+- 该行的**行头**里多一块琥珀色说明：`⟲ head, root 从这里重算`（`title` 里保留原句「上面的行在 head, root 上的累积到这一行作废，下面几行从这个新起点重新叠」）。2026-11-26 23:20 之前是一条通栏横带，太占高度、也把表格切断，改成并进卡片；
 - 被抹掉的格子（`deadAt()`）加 `.dead`，文字划掉（透明度 .42）+ **右下角** `⟂`。
 
 **停用（点眼睛）时不生效**：横带不出现，上方格子也不再划掉。实现上 `buildMatrix()` 给每行算了两个位：
 `ov`（这段动画是否带 override，身份，停用也还是）与 `ovOn`（此刻是否真的在生效 = `ov && enabled`）；
-`bounds` 只收 `ovOn` 的行，横带也用 `if (r.ovOn)`。改这里时两个位别混用 —— 2026-11-26 之前只判了 `ov`，
+`bounds` 只收 `ovOn` 的行，行头那块说明也用 `r.ovOn` 控制。改这里时两个位别混用 —— 2026-11-26 之前只判了 `ov`，
 导致「停用 override 行后横带照画、下面照划」，与「停用行不参与判定」自相矛盾。
 
 ### 5.3 累加规则（概念层，当前 UI 只展示原文不做数值）
@@ -360,6 +360,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 字号：正文 13–14 / 辅助 11.5–12 / 微标 10.5；数字用等宽（`--mono`，JetBrains Mono 族）
 - 图标统一 `class="icon"`（16px，stroke 1.75），**不许用 emoji 当功能图标**
 - 动效 120–180ms（hover）/ 200–280ms（弹窗），并尊重 `prefers-reduced-motion`
+- override 行的说明块 `.rh-ov` 在行头里（虚线分隔 + 琥珀色骨名），不再是通栏横带
 - 骨骼面板 `.bonemgr` 是 `position: fixed`（挂在 body 上，`render()` 重建表格不会把它冲掉），跟着角落按钮定位；`.bm-chip.on` 用实心点 + `--card` 底表示「显示中」
 - 最终值里的表达式用 `.sumv`（10.5px 等宽、`--text-2`，纯数字 `.isnum` 提亮）；太长走 `.clip` 的省略号 + 「展开」
 - 底部「最终值」行是 sticky（`bottom: 0`），底色 `--bg-2` 必须不透明；行头那格同时 sticky left（`z-index: 6`），不然横向滚动会错位
@@ -424,7 +425,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 1. ~~蓝色 `this` 高亮未做浏览器验证~~ → **已实测通过**（浅色主题，`.expr.th` 47 个 / 普通 `.expr` 48 个；computed text `rgb(29,78,216)`，bg `rgba(37,99,235,.1)`，border `rgba(37,99,235,.34)`；`td.hasthis` = 0）。`humanoid.sneaking` 的 body.rotation 只有 x 变蓝，`armor_stand.athena_pose` 整行蓝，`player.sleeping` 上方琥珀带 + `head`/`root` 划掉，均符合预期。
 2. ~~键盘导航缺失~~ → **已补**（见 §10 键盘表与附录 B §12）。
-3. 浅色主题下矩阵未逐项复查（`.bandrow` 琥珀带、`.dead` 灰化在浅色下的对比度已截图看过，可接受；`.expr.th` 已实测）。
+3. 浅色主题下矩阵未逐项复查（`.rh-ov` 琥珀说明块、`.dead` 灰化在浅色下的对比度已截图看过，可接受；`.expr.th` 已实测）。
 4. ~~`preview.png` / `samples.png` 落后于当前代码~~ → **2026-11-26 已按当前代码重拍**（深色、默认 5 行，1848×857，截图时窗口 1466 CSS px）。注意旧图里格内的 `this` 小徽标已被移除，现在只有**逐轴蓝色表达式** + 行首 `this ×N` chip，看旧图别以为丢了功能。
 5. **Molang 求值链是死代码**（见 §5.5）：要么接回来做「求值」视图，要么删除。
 6. `applyWeight()` / `fmtV()` 无调用点。
@@ -460,7 +461,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 1. 默认 5 行（move / bob / sneaking / athena_pose / sleeping），行首可拖动，拖完 `⟂` 与蓝标跟着变；
 2. `sneaking` 的 `body.rotation` 的 **x** 是蓝的，y/z 不是；`athena_pose` 整行都是蓝的；
-3. `player.sleeping` 上方有琥珀横带；`sneaking`、`athena_pose` 在 `head` 上的格子被划掉并带 `⟂`（它们写了 `head`，而 `sleeping` 会清 `head`、`root`）；
+3. `player.sleeping` 的行头里有「head, root 从这里重算」；`sneaking`、`athena_pose` 在 `head` 上的格子被划掉并带 `⟂`（它们写了 `head`，而 `sleeping` 会清 `head`、`root`）；
 4. 示例库勾选一条 → 关闭弹窗前后都能在矩阵里看到它（且是启用状态）；
 5. 导入 `C:\Users\DUANQIUYI\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈；
 6. **点掉 `player.sleeping` 的眼睛** → 琥珀带消失、`sneaking`/`athena_pose` 的 `head` 格子恢复成正常值（`⟂` 清零，状态栏变成「5 个动画（4 启用）· 7 根骨骼 · 10 个通道」）；再点亮 → 全部复原。这条是 2026-11-26 修的 bug 的回归用例。
@@ -481,6 +482,16 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 23:20 · override 说明并进行头（去掉通栏横带）
+
+- 原来每个 override 行动画上方插一条 `tr.bandrow`（`colspan` 整行）：`上面的行在 head, root 上的累积到这一行作废 —— 下面几行从这个新起点重新叠`。太占高度，而且把表格横着切一刀。
+- 改成行头里一块 `.rh-ov`：`⟲ head, root 从这里重算`，琥珀虚线跟上方的 chips 隔开；原句完整保留在 `title` 里。
+- `render()` 里删掉了 band row 的生成；`.mtl tr.bandrow` / `.ovline` 那几段 CSS 一并去掉（`.ovline` 只有横带在用）。
+- 行头高度略增（约 20px），但整张表少了一行，净高度更省；`⟂`、`被覆盖格子划掉` 这些不变。
+- 验证：`player.sleeping` 的行头文本里出现「head, root 从这里重算」；通栏横带消失；`computeFinal` 与 override 清零逻辑没动（最终值仍是 `30/0/0`）。
+- `preview.png` 重拍。
+
 
 ### 2026-11-26 23:15 · 删掉抓手图标，整行都能拖
 
