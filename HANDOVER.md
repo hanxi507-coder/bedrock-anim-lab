@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 23:40（接手第十六次改动）** · `index.html` **3421 行 / 139,232 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 23:58（接手第十七次改动）** · `index.html` **3454 行 / 140,602 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        139232 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       177992 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        140602 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       178892 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -151,7 +151,7 @@ D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
 这一行带 `true` 时，它先把自己碰到的骨骼清成 `0/0/0`（scale 是 `1/1/1`），再写自己的值 —— 也就是**把上面所有行在这些骨骼上的累积全抹掉**。
 
 在矩阵里表现为：
-- 这一行**顶边一条 2px 琥珀线**（`tr.ovon > th/td` 的 `border-top`）+ 行头琥珀底色，表示「上面的累计到这里切断」；被它抹掉的格子是**琥珀色划掉 + ⟂**（试过铺 6% 琥珀底，用户当成 bug，撤了 —— 底色会被读成"高亮/选中"，划掉才读得出"作废"）。一个字都不用写。
+- 这一行**顶边一条 2px 琥珀线**（`tr.ovon > th/td` 的 `border-top`）+ 行头琥珀底色，表示「上面的累计到这里切断」；被它抹掉的格子是**淡琥珀底（6%）+ 琥珀色划掉 + 琥珀 ⟂**；而被 `- this` 写成绝对值的格子**不铺底**、只有灰色划掉 + 灰 `⟂`。两种「作废」靠有无底色区分 —— 用户明确要求这个区分（否则分不清是 override 还是 this 干的）。
   - 23:20 之前是一条通栏文字横带，嫌占高度；23:30 改成行头里一句「head, root 从这里重算」，用户嫌多余；23:40 彻底改成纯视觉。骨名不再显示在行里，改到行头 `override` 芯片的 `title`（`badgesFor()`）和 `th` 的 `aria-label` 里；
 - 被抹掉的格子（`deadAt()`）加 `.dead`，文字划掉（透明度 .42）+ **右下角** `⟂`。
 
@@ -361,7 +361,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 字号：正文 13–14 / 辅助 11.5–12 / 微标 10.5；数字用等宽（`--mono`，JetBrains Mono 族）
 - 图标统一 `class="icon"`（16px，stroke 1.75），**不许用 emoji 当功能图标**
 - 动效 120–180ms（hover）/ 200–280ms（弹窗），并尊重 `prefers-reduced-motion`
-- override 行是 `tr.ovon`：`> th/td` 一条 2px 琥珀 `border-top`，行头底色 `color-mix(amber 9%, card)`；被作废的格子 `.cell.dead` 只改划掉线的颜色（`text-decoration-color: color-mix(amber 60%, transparent)`），**不铺底色**
+- override 行是 `tr.ovon`：`> th/td` 一条 2px 琥珀 `border-top`，行头底色 `color-mix(amber 9%, card)`；`.cell.dead`（override 作废）= 6% 琥珀底 + 琥珀划掉 + 琥珀 `⟂`；`.cell.cutall`（三条轴被 `- this` 写死）= 无底 + 灰色划掉 + 灰 `⟂`
 - 骨骼面板 `.bonemgr` 是 `position: fixed`（挂在 body 上，`render()` 重建表格不会把它冲掉），跟着角落按钮定位；`.bm-chip.on` 用实心点 + `--card` 底表示「显示中」
 - 最终值里的表达式用 `.sumv`（10.5px 等宽、`--text-2`，纯数字 `.isnum` 提亮）；太长走 `.clip` 的省略号 + 「展开」
 - 底部「最终值」行是 sticky（`bottom: 0`），底色 `--bg-2` 必须不透明；行头那格同时 sticky left（`z-index: 6`），不然横向滚动会错位
@@ -462,7 +462,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 1. 默认 5 行（move / bob / sneaking / athena_pose / sleeping），行首可拖动，拖完 `⟂` 与蓝标跟着变；
 2. `sneaking` 的 `body.rotation` 的 **x** 是蓝的，y/z 不是；`athena_pose` 整行都是蓝的；
-3. `player.sleeping` 的顶边有琥珀线、行头偏琥珀；它上面 `sneaking` 的 head 格子是琥珀色划掉 + `⟂`（没有底色）；`sneaking`、`athena_pose` 在 `head` 上的格子被划掉并带 `⟂`（它们写了 `head`，而 `sleeping` 会清 `head`、`root`）；
+3. `player.sleeping` 的顶边有琥珀线、行头偏琥珀；它上面 `sneaking` 的 head 格子是**淡琥珀底 + 琥珀划掉 + 琥珀 ⟂**；同一行 `body.rotation`（`0.5 - this`）**没有底色**、只有灰色划掉 + 灰 `⟂`；`sneaking`、`athena_pose` 在 `head` 上的格子被划掉并带 `⟂`（它们写了 `head`，而 `sleeping` 会清 `head`、`root`）；
 4. 示例库勾选一条 → 关闭弹窗前后都能在矩阵里看到它（且是启用状态）；
 5. 导入 `C:\Users\DUANQIUYI\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈；
 6. **点掉 `player.sleeping` 的眼睛** → 琥珀带消失、`sneaking`/`athena_pose` 的 `head` 格子恢复成正常值（`⟂` 清零，状态栏变成「5 个动画（4 启用）· 7 根骨骼 · 10 个通道」）；再点亮 → 全部复原。这条是 2026-11-26 修的 bug 的回归用例。
@@ -483,6 +483,18 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 23:55 · 两种「作废」分开画：override 带底，`- this` 不带
+
+- 用户要求把琥珀底加回来，理由很实在：**没有底色就分不清格子是被 override 抹的还是被 `- this` 写死的**。
+- 于是把原来共用的 `.dead` 拆成两个类：
+  - `.dead`（被下面某行的 `override_previous_animation` 作废）= **6% 琥珀底 + 琥珀划掉 + 琥珀 `⟂`**；
+  - `.cutall`（三条轴都被下面的 `- this` 写成绝对值）= **不铺底 + 灰色划掉 + 灰 `⟂`**。
+- 单轴 `- this` 的小 `⟂` 也从琥珀改成 `--text-3`，跟"作者自己写的绝对值"归一类。
+- 顺手修了个老问题：`<code class="expr">` 是 `display: block`，父级的 `text-decoration` 传不下去，所以**表达式格子一直没有划掉线**（只有纯数字有）。现在 `.dead` / `.cutall` 直接给 `.expr` 也加 `text-decoration: line-through`。
+- 验证：默认栈里 `td.cell.dead` 2 个（sneaking 的 head.position、athena 的 head.rotation，都是被 sleeping 的 override 抹的）、`td.cell.cutall` 9 个（含 `0.5 - this`）；计算样式 `text-decoration-line: line-through`，颜色 `rgb(113,113,122)` / 琥珀 60%。
+- `preview.png` 重拍。
+
 
 ### 2026-11-26 23:40 · override 改成纯视觉（去掉文字）
 
