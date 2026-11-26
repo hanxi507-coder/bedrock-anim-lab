@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 15:52（接手第五次改动）** · `index.html` **2986 行 / 120,631 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 16:42（接手第七次改动）** · `index.html` **3055 行 / 123,617 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -45,7 +45,9 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 | 收起的骨骼列 | 点骨骼表头可把该骨骼的通道列收起来，矩阵上方出现「已隐藏 N 根骨骼」+ 恢复按钮；**只影响显示，不参与判定** |
 | 斜纹格 | 这段动画**压根没有**这根骨骼（`·` 则是「有骨骼但没写这个通道」）；行头 `骨骼 4/8` 是覆盖率，悬停看具体漏了哪几根 |
 
-**格子里的值一律完整显示**：表达式换行不截断，关键帧一帧一行全列（2026-11-26 改，之前是省略号 + 只列前 2 帧）。代价是行高会随内容变高（`player.sleeping` 的 root.position 那种一行 140 多字符的会撑到 300px 上下）。
+**长值默认折叠，但可以展开**（2026-11-26 16:42 定稿）：单轴超过 44 字符、或关键帧超过 4 个的格子，默认只显示一行（`nowrap` + 省略号）/ 前 3 帧，格子右下角有 `展开` 按钮；点开后完整换行、按钮变 `收起`。**不是静默截断**——每个被折叠的格子都明确给了入口，状态在 `state.openCells`（内存）。短值（`variable.tcos0 * -1.4`、`-this + 10` 这类）永远完整显示，不会被折。
+
+早一点的中间版本曾经「一律完整显示」，行高会飙到 338px（`player.sleeping` 的 root.position 一行 140 多字符），所以又收回来了——**但收法是给按钮，不是改回 `slice` 吞掉**。
 
 一句话对比：**`this` 是“往上读到哪”，`override` 是“往上全抹掉”。换顺序 = 换结果。**
 
@@ -76,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        120631 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       145278 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        123617 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       166392 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -169,14 +171,15 @@ D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
 "rotation": { "0.0": [0,0,0], "0.5": { "pre": [0,0,0], "post": [10,0,0] }, "1.0": [10,0,0] }
 ```
 
-矩阵里对关键帧：**一帧一行全部列出，不折叠**（2026-11-26 起；之前只列前 2 帧 + 末帧，中间用 `… 共 N 帧` 吞掉）。时间标在行首，`pre ≠ post` 的那一帧标琥珀色（跳变点）。逻辑在 `chanHTML()`：
+矩阵里对关键帧：**默认先列前 3 帧 + `… 共 N 帧`，点格子右下角的「展开」看全部**（2026-11-26 下午定稿：中午一度改成全列，行太高，又加回了折叠——但这次是显式的、能一键展开，不是静默吞掉）。时间标在行首，`pre ≠ post` 的那一帧标琥珀色（跳变点）。逻辑在 `chanHTML()`：
 
 ```js
-/* 关键帧：全部列出，一帧一行，不折叠 */
-return '<div class="keys">' + ch.keys.map(line).join('') + '</div>';
+const ks = clipped ? ch.keys.slice(0, 3) : ch.keys;   // clipped = isLongChannel() && !state.openCells.has(key)
+return '<div class="keys">' + ks.map(line).join('')
+  + (clipped ? '<span class="more">… 共 ' + ch.keys.length + ' 帧</span>' : '') + '</div>';
 ```
 
-真实数据里 88% 的通道 ≤ 8 帧，但 bedrock-samples 里最长有 **52 帧**（`bee.animation.json` 的 `leftwing_bone / rotation`）。全列会让那一行很高 —— 这是「完整优先」的代价，别为了好看又加回 slice。
+真实数据里 88% 的通道 ≤ 8 帧，但 bedrock-samples 里最长有 **52 帧**（`bee.animation.json` 的 `leftwing_bone / rotation`）。
 
 ### 5.5 Molang 求值层（现状：**已实现但没接线**）
 
@@ -255,9 +258,11 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 | `axisCancels(ch, ax)` / `CANCEL_THIS` | 这一轴的值是不是「被 `- this` 写成绝对值」（系数 -1、没被乘除）→ 供 `shadow` 用 |
 | `fmtNum(n, base)` | 数字格式化（rotation / 时间 2 位，其余 3 位，去尾零） |
 | `litHTML(v, base)` | 单条轴渲染：字符串 → `<code class="expr">`，含 `this` 再加 `.th` 蓝色；数字 → `.num` |
-| `chanHTML(ch, base, cuts)` | 一个通道 → x/y/z 三行；`cuts[ax]` 是抵消行号时该轴加 `.cut` + 右侧小 `⟂`；关键帧**全部列出**、一帧一行（不再 slice），整通道被抵消时加 `.dead-keys` |
+| `chanHTML(ch, base, cuts, clipped)` | 一个通道 → x/y/z 三行；`cuts[ax]` 是抵消行号时该轴加 `.cut` + 右侧小 `⟂`；`clipped` 时关键帧只渲染前 3 帧 + `… 共 N 帧`，整通道被抵消时加 `.dead-keys` |
 | `badgesFor(item)` / `rowHead(r, allBones)` | 行首：抓手、序号、动画名、时长、**覆盖率 `骨骼 4/8`**（title 列涉及/未涉及）、loop 图标、chips（override / this / molang / keyframe / fx）、眼睛（启停）、垃圾桶（删除） |
-| `cellHTML(row, col, bounds, shadow)` | 单格：没有该通道时输出 `·`（`.none`）或斜纹（`.bnone`，连骨骼都没有）；有值时按 override（整格 `.dead`）与 `shadow`（逐轴 `.cut`）上标记 |
+| `cellHTML(row, col, bounds, shadow)` | 单格：没有该通道时输出 `·`（`.none`）或斜纹（`.bnone`，连骨骼都没有）；有值时按 override（整格 `.dead`）与 `shadow`（逐轴 `.cut`）上标记；长值加 `.clip` + 「展开」按钮 |
+| `isLongChannel(ch)` / `LONG_EXPR` | 单轴字符串 > 44 字符，或关键帧 > 4 个 → 算「长」，默认折叠 |
+| `toggleCell(key)` | 展开/收起单格，key = `item.id|骨骼|通道`，存在 `state.openCells`（内存，不落盘）；重建后把焦点还给同一个按钮 |
 | `render()` | 重建整张表 + 写 `--ncol`（列数）+ 切换 `#empty` / `#mwrap`（空栈时两个都 hidden）+ 调用 `renderColbar()` |
 | `renderColbar(allBones)` | 画「已隐藏 N 根骨骼」栏：只列当前数据里真的存在、且被隐藏的骨骼；每个是一个 `data-show` 按钮，右侧「全部显示」 |
 | `hideBone(bone)` / `showBone(bone)` | 隐藏 / 恢复单根骨骼的列，`render(); save()`，隐藏时 toast 提示去哪恢复 |
@@ -318,11 +323,12 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 字号：正文 13–14 / 辅助 11.5–12 / 微标 10.5；数字用等宽（`--mono`，JetBrains Mono 族）
 - 图标统一 `class="icon"`（16px，stroke 1.75），**不许用 emoji 当功能图标**
 - 动效 120–180ms（hover）/ 200–280ms（弹窗），并尊重 `prefers-reduced-motion`
-- 矩阵列宽：标签列 232px，通道列 **208px**（2026-11-26 从 144 加宽，因为格子改成完整换行后 144 会把 `variable.tcos0 * -1.4` 这种常见表达式折成两行），`width: max(100%, calc(232px + var(--ncol) * 208px))`，窄屏横向滚动
+- 面板宽度：`.shell max-width: 1560px`（说明文字 `#hint` 单独 1040px）；矩阵列宽：标签列 232px，通道列 **208px**（2026-11-26 从 144 加宽，因为格子改成完整换行后 144 会把 `variable.tcos0 * -1.4` 这种常见表达式折成两行），`width: max(100%, calc(232px + var(--ncol) * 208px))`，窄屏横向滚动
 - 格子文字**不截断**：`.expr` 用 `white-space: pre-wrap` + `overflow-wrap: break-word`（`break-word` 而不是 `anywhere`，避免把 `query.body_y_rotation` 从中间劈开，除非单个 token 真的超过一行）；`.keys span` 同理
 - `table-layout: fixed`：列宽由第一行（`thead` 的 corner + 骨骼 colspan）决定，所以改列宽要动 `--ncol` 那个公式和 `.chanh` 的 `width` 两处
 - 行头 chips（`override` / `this ×N` / `molang ×N` …）是 10px 等宽小字、按语义分色（`.chip.ov` 琥珀 / `.chip.th` 蓝 / `.chip.bad` 红），不再继承 12.5px 正文；`.rh-meta` 允许换行，chips 多了会掉到第二行而不是被裁掉
 - 空单元格分两种：`td.none` 一个 `·`（有骨骼没通道）；`td.none.bnone` 斜纹（连骨骼都没有，`repeating-linear-gradient` + `color-mix` 取 `--border-2` 22%，深色很淡、浅色更淡）
+- 长值折叠：`td.cell.clip` 下 `.expr` 用 `nowrap + ellipsis`；`.xbtn` 是 10px 等宽小按钮（`--text-2`，hover 提亮），右对齐贴在格子底部
 - 被 `- this` 抹掉的单轴：`.vec span.cut` 透明 42% + 删除线 + 行尾 `<em class="cutmark">⟂</em>`；三条轴全中时改用整格 `.dead`（省掉三个 ⟂，和 override 观感统一）
 - **行头是 sticky 的，背景必须不透明**：`.rowh.ov` 以前用 `--amber-soft`（9% alpha），横向滚动时会透出下面的格子文字、看起来像重影；现在改成 `color-mix(in srgb, var(--amber) 9%, var(--card))` 的实色。以后给 sticky 元素加底色，别直接用带 alpha 的 token
 - 行头 `cursor: grab`（整块可拖），但 `.key` 和 `.acts button` 单独 `cursor: pointer`；抓手图标的视觉尺寸不变，靠 `padding:4px` + 负 margin 把热区撑到 24×29
@@ -341,6 +347,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 | --- | --- |
 | 拖行首上下拖 | 换行序（**整块行头都能起手**，不一定要抓小圆点）；松手即重算 `⟂` 与蓝标 |
 | 点骨骼表头（`root` / `head` 那一格） | 收起该骨骼的全部通道列；矩阵上方出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。**只影响显示** |
+| 点格子右下角的「展开」 | 把这一格的长表达式 / 全部关键帧摊开，按钮变成「收起」；再点收回。**只影响这一格**，不写 localStorage |
 | 点眼睛 | 该行停用/启用（停用行不参与 `this` 与 override 判定） |
 | 点垃圾桶 | 从栈里删除 |
 | 顶栏「示例库」 | 打开弹窗；**勾选立刻增删**，无确认按钮；组头有「全选」「**替换整栈**」（清掉现有全部，只留这一组） |
@@ -380,8 +387,9 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 8. ~~无 git 仓库~~ → **已 `git init`**（`main`，基线 `0eeaf25`；`.gitattributes` 用 `* -text` 锁死行尾，避免 Windows autocrlf 改动字节）。提交身份是仓库内的 `DUANQIUYI <duanqiuyi@localhost>`，想换就 `git config user.email ...`。
 9. 移动端只做了「不横向溢出」级别的适配，矩阵本身必须横向滚动（列多时），可考虑冻结骨骼表头行。
 10. 示例库分组说明 `.lib-note` 用 `--text-3`（深色 #71717A on #141417 ≈ **3.8:1**），11.5px 正文低于 WCAG AA 4.5:1，截图里几乎看不清。改 `--text-2`（≈5.9:1）即可，但会动视觉层级，**未擅自改**。
-11. **撤销栈只在内存里**：刷新页面就清空（`save()` 不写历史，避免把整份 `def` 再复制进 localStorage）。颜色 `it.color` 也不在快照里，撤销后若被 `assignColors()` 重排过不会复原（视觉小瑕疵，不影响语义）。
-12. **行高完全由内容决定**：`player.sleeping` 的 root.position 有 140+ 字符，那一行约 338px；`bee` 那种 52 帧的通道会更高。这是「完整显示」的必然代价，没有截断。若以后嫌太高，正确做法是加一个「完整 / 紧凑」视图开关（默认完整），**不要偷偷把 slice 或省略号加回来**。
+11. **展开状态只在内存里**：`state.openCells` 不写 localStorage，刷新后全部回到折叠态（故意的，免得下次打开发现一堆被撑高的行）。
+12. **撤销栈只在内存里**：刷新页面就清空（`save()` 不写历史，避免把整份 `def` 再复制进 localStorage）。颜色 `it.color` 也不在快照里，撤销后若被 `assignColors()` 重排过不会复原（视觉小瑕疵，不影响语义）。
+12. **行高**：默认折叠时一行 60–90px；点开长值后那一行会明显变高（`player.sleeping` 的 root.position 全展开约 250px），这是预期，不是 bug。想再压高度就调 `LONG_EXPR` 阈值或列宽，**别把「展开」按钮去掉、改成静默截断**（用户明确要的是「能展开」）。
 13. `load()` 里 `!data.items.length` 直接返回 false，于是**把行全删光再刷新，5 条默认示例会自己回来**。空状态（`#empty`）其实是合法状态，是否要持久化空栈待定。
 
 ---
@@ -419,11 +427,21 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 12. **覆盖率与斜纹**：`move` 行头是 `骨骼 4/8`，`root/body/head` 的格子是斜纹；`sneaking` 的 `rightitem` 是斜纹，但 `leftleg.rotation` 这种「有骨骼没通道」是 `·`。
 13. **拖拽范围**：在行头任意位置（动画名、序号、时间那一行）按住往上下拖 5px 以上就能换序，不必瞄准抓手；轻点动画名仍然只是开/关，不会误移。
 14. **横向滚动**：把矩阵横向滚到底，行头（尤其 `player.sleeping` 那条浅琥珀底）必须完全不透明，不能透出下面格子的文字。
-15. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
+15. **长值折叠**：`humanoid.bob` 的左右臂 z 轴、`player.sleeping` 的 root.position/rotation 默认显示成一行 + 省略号，格子右下角有「展开」；点开后完整换行、按钮变「收起」；其余短值不受影响。
+16. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 16:42 · 面板加宽 + 长值可展开
+
+- **面板加宽**：`.shell` 的 `max-width` 1120 → **1560**（`.shell > #hint` 单独收在 1040px，说明文字不会拉成一条长线）。同屏能多看到一列多。
+- **长值默认折叠、可展开**：新增 `isLongChannel()`（单轴 > 44 字符或关键帧 > 4 个算长）与 `state.openCells`。长的格子在 `.clip` 下：静态通道每条轴 `nowrap + ellipsis` 一行，关键帧只渲染前 3 帧 + `… 共 N 帧`；格子右下角一个 `展开 ⌄` 按钮，点开变 `收起 ⌃` 并完整换行/列出全部。
+- 数据上：默认 5 行里有 4 个格子会被折叠（bob 左右臂 z、sleeping 的 root.position / root.rotation），行高从 338px 量级回落到 86px。
+- 展开状态只放内存（`state.openCells`，key = `item.id|骨骼|通道`），刷新即折叠；撤销/重排后仍跟着同一段动画。
+- 说明弹窗、顶部提示同步（「长表达式默认收成一行，点格子里的展开看全文」）。
+- `preview.png` 重拍（1848×857）。
 
 ### 2026-11-26 16:12 · 修「外面滚一层、表格滚一层」的抢滚轮
 

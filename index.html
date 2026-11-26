@@ -322,7 +322,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
    ============================================================ */
 .shell {
   width: 100%;
-  max-width: 1120px;
+  max-width: 1560px;
   margin: 0 auto;
   padding: 20px 24px 56px;              /* 底部留出固定状态栏的 40px + 一点缝 */
   flex: 1 1 auto;
@@ -346,6 +346,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   overscroll-behavior: contain;
 }
 .shell > #hint, .shell > #colbar { flex: none; }
+.shell > #hint { max-width: 1040px; }        /* 面板加宽了，说明文字仍然按易读行宽收着 */
 .empty {
   display: flex;
   flex-direction: column;
@@ -548,6 +549,34 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .keys.dead-keys { opacity: .42; }
 .keys.dead-keys span { text-decoration: line-through; text-decoration-color: var(--border-2); }
+.keys .more { color: var(--text-3); font-size: 10.5px; }
+
+/* ---- 长值：默认收成一行，点「展开」看全 ---- */
+.mtx td.cell.clip .expr {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+.mtx td.cell .xbtn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 3px 0 -1px auto;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.mtx td.cell .xbtn:hover { color: var(--text); background: var(--hover); }
+.mtx td.cell .xbtn .icon { width: 10px; height: 10px; }
+.mtx td.cell.dead .xbtn { opacity: .8; }
 
 .vec { display: flex; flex-direction: column; gap: 2px; }
 .vec span {
@@ -1273,7 +1302,7 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   <div class="intro" id="hint">
     <p>
       <b>行 = 动画，列 = 骨骼 / 通道。</b>格子里的值就是 JSON 里写的原文，<code>variable</code> / <code>query</code> 不代入数字。
-      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起它的通道列，只看你关心的骨骼。
+      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起通道列；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文。
     </p>
     <p class="sub">
       <code>this</code> 读到的是"上面所有行在这个通道上的累计"，所以 <code>0.5 - this</code> 等于把该轴设成绝对值；
@@ -1344,6 +1373,7 @@ function escapeHtml(s) {
 const ICON = {
   grip: '<svg class="icon dots" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
   chevronDown: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></svg>',
+  chevronUp: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></svg>',
   chevronRight: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg>',
   close: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
   trash: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5.2h5V7M6.6 7l.8 12h9.2l.8-12M10.6 11v4.6M13.4 11v4.6"/></svg>',
@@ -1928,7 +1958,8 @@ const SAMPLES = [
 const MOLANG_VARS = {};
 const state = {
   stack: [], sel: null,
-  hiddenBones: []            // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
+  hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
+  openCells: new Set()       // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
 };
 
 /* ---------- 撤销 / 重做 ----------
@@ -2053,6 +2084,15 @@ function axisCancels(ch, ax) {
   return ch.keys.length > 0 && ch.keys.every(k => test(k.post[ax]));
 }
 
+/* 多长算「长」：单轴超过 44 字符（一列放不下、要折两行以上），或关键帧多于 4 个。
+   长的默认收成一行 / 前 3 帧，格子里给「展开」。 */
+const LONG_EXPR = 44;
+function isLongChannel(ch) {
+  if (!ch) return false;
+  if (ch.kind === 'static') return ch.value.some(v => typeof v === 'string' && v.length > LONG_EXPR);
+  return ch.keys.length > 4;
+}
+
 function buildMatrix() {
   /* ov = 这一段动画是否带 override（身份，停用也还是 override 动画）
      ovOn = 它此刻是否真的在生效（停用的行不参与判定，见 §10） */
@@ -2114,7 +2154,7 @@ function litHTML(v, base) {
   return '<span class="num">' + (isFinite(n) ? fmtNum(n, base) : '?') + '</span>';
 }
 
-function chanHTML(ch, base, cuts) {
+function chanHTML(ch, base, cuts, clipped) {
   cuts = cuts || [-1, -1, -1];
   if (ch.kind === 'static') {
     return '<div class="vec">' + ['x', 'y', 'z'].map((ax, i) => {
@@ -2126,7 +2166,7 @@ function chanHTML(ch, base, cuts) {
         + '</span>';
     }).join('') + '</div>';
   }
-  /* 关键帧：全部列出，一帧一行，不折叠（旧版只列前 2 帧 + 末帧，把中间吞了） */
+  /* 关键帧：默认只列前 3 帧（长的给「展开」），展开后全部列出 */
   const line = k => {
     const jump = JSON.stringify(k.pre) !== JSON.stringify(k.post);
     return '<span' + (jump ? ' class="jump"' : '') + ' title="' + k.t.toFixed(3) + 's' + (jump ? ' · pre/post 跳变' : '') + '">'
@@ -2135,7 +2175,10 @@ function chanHTML(ch, base, cuts) {
       + '</span>';
   };
   const cutAll = cuts[0] != null && cuts[0] >= 0;
-  return '<div class="keys' + (cutAll ? ' dead-keys' : '') + '">' + ch.keys.map(line).join('') + '</div>';
+  const ks = clipped ? ch.keys.slice(0, 3) : ch.keys;
+  return '<div class="keys' + (cutAll ? ' dead-keys' : '') + '">' + ks.map(line).join('')
+    + (clipped ? '<span class="more">… 共 ' + ch.keys.length + ' 帧</span>' : '')
+    + '</div>';
 }
 
 function badgesFor(item) {
@@ -2190,6 +2233,15 @@ function rowHead(r, allBones) {
     + '</th>';
 }
 
+/* 展开 / 收起单格的完整值；只用内存状态，不写 localStorage */
+function toggleCell(key) {
+  if (state.openCells.has(key)) state.openCells.delete(key);
+  else state.openCells.add(key);
+  render();
+  const btn = document.querySelector('[data-exp="' + String(key).replace(/["\\]/g, '\\$&') + '"]');
+  if (btn) btn.focus();
+}
+
 function cellHTML(row, col, bounds, shadow) {
   const it = row.item;
   const hit = it.channels.find(ch => ch.bone === col.bone && ch.base === col.base);
@@ -2208,14 +2260,21 @@ function cellHTML(row, col, bounds, shadow) {
     return at != null && at > row.si ? at : -1;
   });
   const allCut = cuts.every(x => x >= 0);
-  if (allCut && !dead) {
-    /* 三条轴都被后面的 -this 写成绝对值 → 按整格被覆盖来画（省掉三个 ⟂），和 override 的观感一致 */
-    return '<td class="cell dead" title="第 ' + (cuts[0] + 1) + ' 行用 - this 把它写成了绝对值，这格上面的累积不算">'
-      + chanHTML(hit, col.base, [-1, -1, -1]) + '</td>';
-  }
-  return '<td class="cell' + (dead ? ' dead' : '') + '">'
-    + chanHTML(hit, col.base, allCut ? [-1, -1, -1] : cuts)
-    + '</td>';
+  const key = it.id + '|' + col.bone + '|' + col.base;
+  const long = isLongChannel(hit);
+  const open = long && state.openCells.has(key);
+  const clipped = long && !open;
+  const xbtn = long
+    ? '<button class="xbtn" data-exp="' + escapeHtml(key) + '" aria-expanded="' + (open ? 'true' : 'false') + '"'
+      + ' title="' + (open ? '收起' : '展开完整值') + '">' + (open ? '收起' : '展开') + ic(open ? 'chevronUp' : 'chevronDown') + '</button>'
+    : '';
+  /* 三条轴都被后面的 -this 写成绝对值 → 按整格被覆盖来画（省掉三个 ⟂），和 override 的观感一致 */
+  const tip = (!dead && allCut)
+    ? ' title="第 ' + (cuts[0] + 1) + ' 行用 - this 把它写成了绝对值，这格上面的累积不算"'
+    : '';
+  return '<td class="cell' + (dead || allCut ? ' dead' : '') + (clipped ? ' clip' : '') + '"' + tip + '>'
+    + chanHTML(hit, col.base, allCut ? [-1, -1, -1] : cuts, clipped)
+    + xbtn + '</td>';
 }
 
 function boneLabel(bone) {
@@ -2364,6 +2423,8 @@ function initMatrix() {
   const host = $('#matrix');
   host.addEventListener('click', e => {
     if (Date.now() - lastDragAt < 300) return;
+    const xb = e.target.closest('[data-exp]');
+    if (xb) { toggleCell(xb.dataset.exp); return; }
     const bh = e.target.closest('th.boneh[data-bone]');
     if (bh) { hideBone(bh.dataset.bone); return; }
     const btn = e.target.closest('[data-act]');
@@ -2951,7 +3012,7 @@ function initDocs() {
       ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。只有<strong>引用了 this 的那一条轴</strong>会标蓝，行头另有 <code>this ×N</code> 计数。'],
       ['ban', '空与划掉', '两种「空」不是一回事：<code>·</code> = 这段动画有这根骨骼、但没写这个通道；<strong>斜纹格</strong> = 这段动画压根没有这根骨骼（行头的 <code>骨骼 4/8</code> 就是覆盖率，悬停能看具体漏了哪几根）。文字被划掉 = 被下面的行作废：<code>override</code> 是整根骨骼作废，<code>- this</code> 只作废它写成绝对值的那一条轴。'],
       ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。表里用琥珀色的行边 + 一条通栏说明带标出来，上面被抹掉的格子会划掉并标 <code>⟂</code>。'],
-      ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。每个关键帧一行、按时间排，<strong>全部列出不折叠</strong>，时间标在行首。<code>pre</code> 与 <code>post</code> 不同时那一帧标成琥珀色（在这一点跳变）；<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
+      ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。时间标在行首，帧数多于 4 个时先列前 3 帧 + <code>… 共 N 帧</code>，点格子底部的<strong>「展开」</strong>看全部。<code>pre</code> 与 <code>post</code> 不同时那一帧标成琥珀色（在这一点跳变）；<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
       ['molang', '表达式', '<code>variable.*</code> / <code>query.*</code> / <code>math.*</code> 都是照抄的原文，不代入数字。所以这张表既能当阅读器，也能拿来核对「我到底写没写对」。'],
       ['clock', '时长与循环', '行头显示 <code>animation_length</code>（缺省取最后一帧）和 <code>loop</code> 模式：<code>loop</code> 循环 / <code>hold</code> 停在末帧 / <code>once</code> 播完即止。'],
       ['fx', '事件', '<code>sound_effects</code> / <code>particle_effects</code> 有内容时行头会显示 <code>fx ×N</code>，鼠标悬停看名字。'],
