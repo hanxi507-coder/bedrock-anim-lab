@@ -515,11 +515,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: transparent;
 }
 .mtx td.cell { position: relative; }
-.mtx td.cell.dead { background: color-mix(in srgb, var(--amber) 6%, transparent); }
 .mtx td.cell.dead .vec,
-.mtx td.cell.dead .keys { opacity: .42; }
+.mtx td.cell.dead .keys { opacity: .5; }
+/* 划掉用琥珀色：一眼看出「被上面那行 override 作废了」，而不是给格子铺底色 */
 .mtx td.cell.dead .vec span,
-.mtx td.cell.dead .keys span { text-decoration: line-through; text-decoration-color: var(--border-2); }
+.mtx td.cell.dead .keys span {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--amber) 60%, transparent);
+  text-decoration-thickness: 1px;
+}
 .mtx td.cell.dead::after {
   content: '⟂';
   position: absolute;
@@ -3376,10 +3380,10 @@ function initDocs() {
       ['eyeOff', '只看想看的骨骼', '点<strong>骨骼表头</strong>（<code>root</code> / <code>head</code> 那一格）可以把它下面的通道列收起来，腾出横向空间。收起来只是不显示，<strong>不影响 <code>this</code> 与 <code>override</code> 的判定</strong>；矩阵上方会出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。'],
       ['undo', '撤销 / 重做', 'Ctrl+Z 撤销，Ctrl+Y（或 Ctrl+Shift+Z）重做，顶栏两个箭头按钮也能点。顺序调整、启停、增删、收起骨骼列都能回退，最多 80 步；在输入框里仍然是浏览器自带的撤销，不会被抢。'],
       ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。只有<strong>引用了 this 的那一条轴</strong>会标蓝，行头另有 <code>this ×N</code> 计数。'],
-      ['ban', '空与划掉', '两种「空」不是一回事：<code>·</code> = 这段动画有这根骨骼、但没写这个通道；<strong>斜纹格</strong> = 这段动画压根没有这根骨骼（行头的 <code>骨骼 4/8</code> 就是覆盖率，悬停能看具体漏了哪几根）。文字被划掉、底色泛琥珀 = 被下面的行作废：<code>override</code> 是整根骨骼作废，<code>- this</code> 只作废它写成绝对值的那一条轴。'],
+      ['ban', '空与划掉', '两种「空」不是一回事：<code>·</code> = 这段动画有这根骨骼、但没写这个通道；<strong>斜纹格</strong> = 这段动画压根没有这根骨骼（行头的 <code>骨骼 4/8</code> 就是覆盖率，悬停能看具体漏了哪几根）。文字被划掉（琥珀色）= 被下面的行作废：<code>override</code> 是整根骨骼作废，<code>- this</code> 只作废它写成绝对值的那一条轴。'],
       ['eye', '快速隐藏骨骼', '矩阵左上角那个 <b>骨骼</b> 按钮会把所有骨骼列出来，点一下开/关，底部还有「全部显示 / 全部隐藏」。也可以直接点骨骼表头隐藏它；<kbd>Alt</kbd> + 点 = <b>只看这一根</b>，再 Alt + 点一次还原。隐藏只影响显示，<code>this</code> 和 override 的判定照旧按全部骨骼算。'],
       ['sigma', '最终值（底部那行）', '表格最下面一行是把上面各行<strong>按顺序叠起来</strong>的结果：<code>this</code> 用上一行的结果代入，<code>override</code> 先把它碰到的骨骼清零。<strong>不代入数字</strong>——式子里有 <code>variable</code> / <code>query</code> 就原样留在表达式里，只做化简和抵消（<code>this + (-this)</code> 会直接消掉，<code>-this + 10</code> 最后就是 <code>10</code>）；关键帧这种随时间变的量记作 <code>t</code>。鼠标停在格子上能看到最后是哪一行写的。'],
-      ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。这一行的<b>顶边有一条琥珀线</b>（= 上面的累计到这里切断），行头底色也偏琥珀；上面被它抹掉的格子会变成淡琥珀底 + 划掉 + 标 <code>⟂</code>，鼠标停在行头的 <code>override</code> 标记上能看到它具体清哪几根骨骼。'],
+      ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。这一行的<b>顶边有一条琥珀线</b>（= 上面的累计到这里切断），行头底色也偏琥珀；上面被它抹掉的格子会<b>用琥珀色划掉</b> + 标 <code>⟂</code>，鼠标停在行头的 <code>override</code> 标记上能看到它具体清哪几根骨骼。'],
       ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。时间标在行首，帧数多于 4 个时先列前 3 帧 + <code>… 共 N 帧</code>，点格子底部的<strong>「展开」</strong>看全部。<code>pre</code> 与 <code>post</code> 不同时那一帧标成琥珀色（在这一点跳变）；<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
       ['molang', '表达式', '<code>variable.*</code> / <code>query.*</code> / <code>math.*</code> 都是照抄的原文，不代入数字。所以这张表既能当阅读器，也能拿来核对「我到底写没写对」。'],
       ['clock', '时长与循环', '行头显示 <code>animation_length</code>（缺省取最后一帧）和 <code>loop</code> 模式：<code>loop</code> 循环 / <code>hold</code> 停在末帧 / <code>once</code> 播完即止。'],
