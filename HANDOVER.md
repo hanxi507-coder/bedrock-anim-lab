@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 20:25（接手第十次改动）** · `index.html` **3263 行 / 131,898 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 22:05（接手第十一次改动）** · `index.html` **3283 行 / 132,693 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,7 +78,7 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        131898 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ index.html        132693 B  ← 全部交付物（HTML+CSS+JS 内联）
 ├─ preview.png       173968 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
@@ -305,7 +305,7 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 
 | 函数 | 职责 |
 | --- | --- |
-| `initDrag()` | 纵向拖行换序：**整块行头 `th.rowh` 都能起手**（除了眼睛/垃圾桶），先过 5px 阈值、且竖向位移要大于横向才进拖拽（轻微抖动 / 横向滑动不算），之后生成 `.hline` 指示线 + `.dragtag`；用 `clientY` 与各行中线比较算插入点；`pointerup` 落库 `state.stack` 并 `render(); save()`。拖完 300ms 内的 click 被 `lastDragAt` 吞掉，避免顺带把行点开/关 |
+| `initDrag()` | 跟手拖拽换序（手机 app 那种）：整块 `th.rowh` 起手（眼睛/垃圾桶除外），过 5px 阈值才进拖拽。被拖的行加 `.lift`，`translateY` 贴着指针走；指针越过别的行中线时**立刻改 `state.stack` 并 `render()`**，其它行用 FLIP 滑到新位置（190ms），被拖的行自己重新贴回指针。松手才 `save()` + toast；拖完 300ms 内的 click 被 `lastDragAt` 吞掉 |
 | `initMatrix()` | 表内点击委托：点骨骼表头 → `hideBone()`；`[data-act]` = toggle / remove。键盘：骨骼表头聚焦后 Enter / 空格隐藏，抓手聚焦后 ↑↓ / Home / End 换序 |
 | `toggleItem()` / `removeItem()` | 启停 / 删除一行 |
 | `initColbar()` | 「已隐藏」栏点击委托：`[data-show]` → `showBone()`，`#colShowAll` → 清空 `state.hiddenBones` |
@@ -359,6 +359,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 最终值里的表达式用 `.sumv`（10.5px 等宽、`--text-2`，纯数字 `.isnum` 提亮）；太长走 `.clip` 的省略号 + 「展开」
 - 底部「最终值」行是 sticky（`bottom: 0`），底色 `--bg-2` 必须不透明；行头那格同时 sticky left（`z-index: 6`），不然横向滚动会错位
 - 换序动画只动 `transform`（FLIP），不动布局；`<tr>` 上的 transform 在 `border-collapse: separate` 下是可靠的
+- 拖着的那行是 `.lift`：`z-index: 9`、单元格底色补成 `--card`（td 本来透明，不补就会透出下面的行）、上下各一条 1px 边线当"被拿起"的效果；松手/重建时 `place()` 重新把它贴回指针
 - 面板宽度：`.shell max-width: 1560px`（说明文字 `#hint` 单独 1040px）；矩阵列宽：标签列 232px，通道列 **208px**（2026-11-26 从 144 加宽，因为格子改成完整换行后 144 会把 `variable.tcos0 * -1.4` 这种常见表达式折成两行），`width: max(100%, calc(232px + var(--ncol) * 208px))`，窄屏横向滚动
 - 格子文字**不截断**：`.expr` 用 `white-space: pre-wrap` + `overflow-wrap: break-word`（`break-word` 而不是 `anywhere`，避免把 `query.body_y_rotation` 从中间劈开，除非单个 token 真的超过一行）；`.keys span` 同理
 - `table-layout: fixed`：列宽由第一行（`thead` 的 corner + 骨骼 colspan）决定，所以改列宽要动 `--ncol` 那个公式和 `.chanh` 的 `width` 两处
@@ -381,7 +382,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 | 操作 | 结果 |
 | --- | --- |
-| 拖行首上下拖 | 换行序（**整块行头都能起手**，不一定要抓小圆点）；松手即重算 `⟂` 与蓝标 |
+| 拖行首上下拖 | 行跟手走、其它行实时让位（手机 app 的手感）；松手才落库，`⟂` 与蓝标全程跟着重算 |
 | 点骨骼表头（`root` / `head` 那一格） | 收起该骨骼的全部通道列；矩阵上方出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。**只影响显示** |
 | 拖动 / ↑↓ 换序 | 落手后各行有 220ms 的滑动到位动画（`renderFlip()`），移动的那行会从旧位置滑到新位置 |
 | 点格子右下角的「展开」 | 把这一格的长表达式 / 全部关键帧摊开，按钮变成「收起」；再点收回。**只影响这一格**，不写 localStorage |
@@ -466,12 +467,22 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 14. **横向滚动**：把矩阵横向滚到底，行头（尤其 `player.sleeping` 那条浅琥珀底）必须完全不透明，不能透出下面格子的文字。
 15. **长值折叠**：`humanoid.bob` 的左右臂 z 轴、`player.sleeping` 的 root.position/rotation 默认显示成一行 + 省略号，格子右下角有「展开」；点开后完整换行、按钮变「收起」；其余短值不受影响。
 16. **最终值**：底部一行左边是「最终值 · 不代入数字」，**没有时间控件**；默认 5 行时 `body.rotation` 是 `0 / 0 / 2`（sneaking 的 `0.5 - this` 被 athena 的 `-this` 抵掉），`head.rotation` 是 `30/0/0`（override 清零后 sleeping 的 `30-this`），`leftarm.rotation` 是 `10/0/-5`（`variable.tcos0` 被 `-this + 10` 消掉），`root.position` 显示成带 `query.body_y_rotation` 的长表达式并带「展开」。
-17. **换序动画**：拖一行放手（或聚焦抓手按 ↑↓），被移动的行和让位的行会滑到新位置，约 220ms，不闪、不跳；连续拖两次也不会错位。
+17. **换序手感**：按住行首往下拖，那一行会跟手走并盖住经过的行，其它行实时让位（190ms 滑动）；拖到第 4 行再松手，顺序真的落到第 4 位，不是只挪一格。松手后位置保持、刷新后还在。
 18. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 21:58 · 拖拽改成「跟手 + 实时让位」
+
+- 用户反馈：1）拖的时候也要有动画；2）只能拖到相邻位置，跨不了行，想要手机 app 那种手感。
+- 现在的做法：按下并越过 5px 后，被拖的行加 `.lift` 并用 `translateY` **贴着指针走**；指针越过别的行的中线 → 立刻 `state.stack` 换位 + `render()`，其余行用 FLIP 从旧位置滑到新位置（190ms），被拖的行再 `place(true)` 贴回指针。松手才 `save()`。
+- 插入位算法换成「去掉被拖行之后，有多少行的中线在指针上方」→ 想在哪儿落就在哪儿落，不再受相邻限制。
+- 删掉了 `.hline`（蓝色插入线）和 `.dragtag`（跟手小标签）——行本身跟手了，这两样是干扰。
+- 加了 `host.addEventListener('dragstart', e => e.preventDefault())`，防止浏览器把拖动接管成原生拖拽（这也是之前"拖不远"的一个可能原因）。
+- 坑：替换 `initDrag` 时把紧跟在后面的 `assignColors()` / `save()` 一起截断了，页面直接 `ReferenceError`，已从 git 恢复。**下次用「函数名→下一个函数名」的区间替换，别用模糊结束标记。**
+
 
 ### 2026-11-26 20:20 · 最终值改成「符号叠加，不代入数字」
 

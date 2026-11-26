@@ -737,35 +737,21 @@ html[data-theme="light"] .expr.th {
 .colbar .hb .icon { width: 11px; height: 11px; opacity: .55; }
 
 /* ---- 拖拽 ---- */
-.vline {
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-soft);
-  z-index: 96;
-  pointer-events: none;
-}
-.dragtag {
-  position: fixed;
-  z-index: 97;
-  padding: 5px 9px;
-  border: 1px solid var(--border-2);
-  border-radius: var(--r-md);
-  background: var(--card);
-  box-shadow: var(--shadow-2);
-  font-size: 12px;
-  color: var(--text);
-  pointer-events: none;
-  transform: translate(12px, -50%);
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 body.dragging { cursor: grabbing; user-select: none; }
-body.dragging .mtx th.col { transition: none; }
+
+/* 被拎起来的那一行：挡住下面的内容、给一点悬浮感 */
+.mtx tbody tr.lift {
+  position: relative;
+  z-index: 9;
+  will-change: transform;
+}
+.mtx tbody tr.lift > th,
+.mtx tbody tr.lift > td {
+  background: var(--card);
+  box-shadow: 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2);
+}
+.mtx tbody tr.lift > th { z-index: 10; }
+.mtx tbody tr.lift > th:first-child { box-shadow: inset 3px 0 0 var(--c, var(--border-2)), 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2); }
 
 /* ============================================================
    Footer
@@ -1274,17 +1260,6 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
 .mtx tr.bandrow .ovline .icon { color: var(--amber); }
 
 .mtx td.none { text-align: center; color: var(--border-2); font-family: var(--mono); }
-
-/* 纵向拖拽指示线 */
-.hline {
-  position: fixed;
-  z-index: 90;
-  height: 2px;
-  background: var(--accent);
-  border-radius: 2px;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
-  pointer-events: none;
-}
 
 </style>
 </head>
@@ -2520,7 +2495,7 @@ function render() {
         + '上面的行在 <b>' + r.item.bones.join(', ') + '</b> 上的累积到这一行作废 —— 下面几行从这个新起点重新叠</span>'
         + '</td></tr>';
     }
-    out += '<tr class="arow' + (r.item.enabled ? '' : ' off') + '">' + rowHead(r, allBones)
+    out += '<tr class="arow' + (r.item.enabled ? '' : ' off') + '" data-id="' + r.item.id + '">' + rowHead(r, allBones)
       + cols.map(c => cellHTML(r, c, bounds, shadow)).join('') + '</tr>';
     return out;
   }).join('');
@@ -2673,75 +2648,109 @@ function initMatrix() {
 function initDrag() {
   const host = $('#matrix');
   let drag = null;
+  let timers = [];
+
+  const rows = () => [...host.querySelectorAll('tbody tr.arow')];
+  const rowEl = id => host.querySelector('tbody tr.arow[data-id="' + id + '"]');
+  const topsNow = () => {
+    const m = new Map();
+    rows().forEach(tr => m.set(tr.dataset.id, tr.getBoundingClientRect().top));
+    return m;
+  };
+
+  /* 被拖的行贴着指针走：translateY = 想要的位置 - 它自己的布局位置 */
+  const place = fresh => {
+    const tr = rowEl(drag.id);
+    if (!tr) return;
+    tr.classList.add('lift');
+    const now = tr.getBoundingClientRect().top;
+    const natural = fresh ? now : now - drag.ty;
+    drag.ty = Math.round((drag.curY - drag.offY) - natural);
+    tr.style.transform = 'translateY(' + drag.ty + 'px)';
+  };
+
+  /* 其它行从旧位置滑到新位置（被拖的那行不参与，它自己跟手） */
+  const flipOthers = prev => {
+    rows().forEach(tr => {
+      if (tr.dataset.id === drag.id) return;
+      const old = prev.get(tr.dataset.id);
+      if (old == null) return;
+      const dy = Math.round(old - tr.getBoundingClientRect().top);
+      if (!dy) return;
+      tr.style.transition = 'none';
+      tr.style.transform = 'translateY(' + dy + 'px)';
+      requestAnimationFrame(() => {
+        tr.style.transition = 'transform 190ms cubic-bezier(.2,.8,.2,1)';
+        tr.style.transform = 'translateY(0)';
+        timers.push(setTimeout(() => { tr.style.transition = ''; tr.style.transform = ''; }, 260));
+      });
+    });
+  };
+
+  /* 指针落在「去掉被拖行之后」的第几个位置 */
+  const targetIndex = y => {
+    let to = 0;
+    rows().forEach(tr => {
+      if (tr.dataset.id === drag.id) return;
+      const top = drag.tops.get(tr.dataset.id);
+      if (top == null) return;
+      if (y > top + tr.getBoundingClientRect().height / 2) to++;
+    });
+    return to;
+  };
+
+  const applyTarget = to => {
+    if (!drag.hist) {
+      histPush('调整顺序：' + shortKey(state.stack[drag.si].animKey));
+      drag.hist = true;
+    }
+    const prev = drag.tops;
+    const moved = state.stack.splice(drag.si, 1)[0];
+    state.stack.splice(to, 0, moved);
+    drag.si = to;
+    render();
+    drag.tops = topsNow();
+    flipOthers(prev);
+    place(true);
+  };
 
   const cleanup = () => {
-    if (!drag) return;
-    drag.line.remove(); drag.tag.remove();
+    timers.forEach(clearTimeout);
+    timers = [];
+    rows().forEach(tr => {
+      tr.classList.remove('lift');
+      tr.style.transition = '';
+      tr.style.transform = '';
+    });
     document.body.classList.remove('dragging');
     drag = null;
   };
 
-  const onMove = e => {
-    if (!drag) return;
-    drag.tag.style.left = e.clientX + 'px';
-    drag.tag.style.top = e.clientY + 'px';
-    let target = drag.rects.length;
-    for (let i = 0; i < drag.rects.length; i++) {
-      const r = drag.rects[i];
-      if (e.clientY < r.top + r.height / 2) { target = i; break; }
-    }
-    if (target !== drag.target) {
-      drag.target = target;
-      const n = drag.rects.length;
-      const y = target >= n ? drag.rects[n - 1].bottom : drag.rects[target].top;
-      drag.line.style.top = Math.round(y - 1) + 'px';
-      drag.line.style.left = Math.round(drag.rects[0].left) + 'px';
-      drag.line.style.width = Math.round(drag.rects[0].width) + 'px';
-    }
-  };
-
-  const onUp = () => {
-    if (!drag) return;
-    const from = drag.si, to = drag.target;
-    cleanup();
-    if (to === from || to === from + 1) return;
-    histPush('调整顺序：' + shortKey(state.stack[from].animKey));
-    const moved = state.stack.splice(from, 1)[0];
-    const idx = to > from ? to - 1 : to;
-    state.stack.splice(idx, 0, moved);
-    renderFlip(); save();
-    toast('顺序已更新 · <code>' + escapeHtml(shortKey(moved.animKey)) + '</code> 现在是第 ' + (idx + 1) + ' 行', 'good');
-  };
+  host.addEventListener('dragstart', e => e.preventDefault());   // 别让浏览器接管成原生拖拽
 
   host.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
     const th = e.target.closest('th.rowh');
     if (!th) return;
     if (e.target.closest('.acts')) return;         // 眼睛 / 垃圾桶不参与拖拽
-    const si = +th.dataset.si;
-    if (!(si >= 0)) return;
+    const si0 = +th.dataset.si;
+    if (!(si0 >= 0)) return;
     const x0 = e.clientX, y0 = e.clientY;
 
     const startDrag = ev => {
-      const trs = [...host.querySelectorAll('tbody tr.arow')];
-      const rects = trs.map(x => x.getBoundingClientRect());
-      const line = document.createElement('div');
-      line.className = 'hline';
-      const r0 = th.getBoundingClientRect();
-      line.style.top = Math.round(r0.top) + 'px';
-      line.style.left = Math.round(rects[0].left) + 'px';
-      line.style.width = Math.round(rects[0].width) + 'px';
-      const tag = document.createElement('div');
-      tag.className = 'dragtag';
-      tag.textContent = shortKey(state.stack[si].animKey);
-      tag.style.left = ev.clientX + 'px';
-      tag.style.top = ev.clientY + 'px';
-      document.body.appendChild(line);
-      document.body.appendChild(tag);
+      const id = th.dataset.id;
+      const tr = rowEl(id);
+      if (!tr) return;
+      drag = {
+        id, si: si0, curY: ev.clientY,
+        offY: ev.clientY - tr.getBoundingClientRect().top,
+        ty: 0, tops: null, hist: false
+      };
       document.body.classList.add('dragging');
       const sel = window.getSelection();
       if (sel) sel.removeAllRanges();
-      drag = { si, rects, target: si, line, tag };
+      drag.tops = topsNow();
+      place(true);
     };
 
     const stopWait = () => {
@@ -2753,7 +2762,7 @@ function initDrag() {
       if (!drag) {
         const dy = Math.abs(ev.clientY - y0), dx = Math.abs(ev.clientX - x0);
         if (dy < 5 && dx < 12) return;             // 还没动够：先当点击
-        if (dx > 12 && dx > dy * 2) {              // 明显是横向动作：不换序，也别让松手变成点击
+        if (dx > 24 && dx > dy * 3) {              // 明显是横向动作：不换序，也别让松手变成点击
           lastDragAt = Date.now();
           stopWait();
           return;
@@ -2761,15 +2770,26 @@ function initDrag() {
         if (dy < 5) return;                        // 竖向还不够，再等等
         startDrag(ev);
       }
-      onMove(ev);
+      drag.curY = ev.clientY;
+      place();
+      const to = targetIndex(ev.clientY);
+      if (to !== drag.si) applyTarget(to);
     };
     const up = () => {
       stopWait();
-      if (drag) { lastDragAt = Date.now(); onUp(); }
+      if (!drag) return;
+      const si = drag.si, changed = drag.hist, key = shortKey(state.stack[si].animKey);
+      cleanup();
+      lastDragAt = Date.now();
+      if (!changed) return;
+      save();
+      toast('顺序已更新 · <code>' + escapeHtml(key) + '</code> 现在是第 ' + (si + 1) + ' 行', 'good');
     };
     const cancel = () => {
       stopWait();
-      if (drag) { lastDragAt = 0; cleanup(); }
+      if (!drag) return;
+      cleanup();
+      lastDragAt = 0;
     };
     window.addEventListener('pointermove', wait);
     window.addEventListener('pointerup', up);
