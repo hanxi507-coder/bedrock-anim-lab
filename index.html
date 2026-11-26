@@ -2310,8 +2310,12 @@ function buildMatrix() {
 }
 
 /* 这一格是否被下面某个 override 行清掉 */
+function deadRowAt(bone, si, bounds) {
+  const hit = bounds.find(b => b.si > si && b.item.bones.indexOf(bone) >= 0);
+  return hit ? hit.si : -1;
+}
 function deadAt(bone, si, bounds) {
-  return bounds.some(b => b.si > si && b.item.bones.indexOf(bone) >= 0);
+  return deadRowAt(bone, si, bounds) >= 0;
 }
 
 function fmtNum(n, base) {
@@ -2340,7 +2344,7 @@ function chanHTML(ch, base, cuts, clipped) {
       const cut = at != null && at >= 0;
       return '<span' + (cut ? ' class="cut" title="第 ' + (at + 1) + ' 行把它写成了绝对值（- this），上面这些行在这一轴上的累积不再计入"' : '') + '>'
         + '<i>' + ax + '</i>' + litHTML(ch.value[i], base)
-        + (cut ? '<em class="cutmark" aria-label="已被下一行的 -this 覆盖">⟂</em>' : '')
+        + (cut ? '<em class="cutmark" title="这一轴被下面的行用 - this 写成了绝对值，上面的累积不算了">⟂</em>' : '')
         + '</span>';
     }).join('') + '</div>';
   }
@@ -2427,7 +2431,8 @@ function toggleCell(key) {
 function cellHTML(row, col, bounds, shadow) {
   const it = row.item;
   const hit = it.channels.find(ch => ch.bone === col.bone && ch.base === col.base);
-  const dead = deadAt(col.bone, row.si, bounds);
+  const deadRow = deadRowAt(col.bone, row.si, bounds);
+  const dead = deadRow >= 0;
   const touched = it.boneSet.has(col.bone);
   if (!hit) {
     /* 两种「空」不是一回事：压根没这根骨骼（斜纹）/ 有骨骼但没写这个通道（·） */
@@ -2448,9 +2453,11 @@ function cellHTML(row, col, bounds, shadow) {
   const clipped = long && !open;
   const xbtn = long ? xbtnHTML(key, open) : '';
   /* 三条轴都被后面的 -this 写成绝对值 → 按整格被覆盖来画（省掉三个 ⟂），和 override 的观感一致 */
-  const tip = (!dead && allCut)
-    ? ' title="第 ' + (cuts[0] + 1) + ' 行用 - this 把它写成了绝对值，这格上面的累积不算"'
-    : '';
+  const tip = dead
+    ? ' title="被第 ' + (deadRow + 1) + ' 行的 override_previous_animation 作废了（那一行会清掉 ' + col.bone + ' 的累积）"'
+    : allCut
+      ? ' title="第 ' + (cuts[0] + 1) + ' 行用 - this 把它写成了绝对值，这格上面的累积不算"'
+      : '';
   return '<td class="cell' + (dead || allCut ? ' dead' : '') + (clipped ? ' clip' : '') + '"' + tip + '>'
     + chanHTML(hit, col.base, allCut ? [-1, -1, -1] : cuts, clipped)
     + xbtn + '</td>';
