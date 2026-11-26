@@ -1222,9 +1222,13 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   padding: 7px 10px;
   vertical-align: middle;
   white-space: normal;
-  cursor: grab;                                  /* 整块行头都能拖 */
+  cursor: grab;                                  /* 整行都能起手拖 */
   box-shadow: inset 3px 0 0 var(--c, var(--border-2));
 }
+.mtx tbody tr.arow > td { cursor: grab; }
+.mtx tbody tr.arow > td button,
+.mtx tbody tr.arow > td .xbtn { cursor: pointer; }
+.mtx tbody th.rowh:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* 行头里的可点元素要恢复成手型，否则会继承 grab，看着像拖拽 */
 .mtx tbody th.rowh .key,
 .mtx tbody th.rowh .acts button { cursor: pointer; }
@@ -1233,19 +1237,6 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .mtx tbody th.rowh.off .rh-top,
 .mtx tbody th.rowh.off .rh-meta { opacity: .45; }
 .rh-top { display: flex; align-items: center; gap: 6px; }
-.rh-top .grip {
-  color: var(--border-2);
-  flex: none;
-  cursor: grab;
-  border-radius: 4px;
-  /* 视觉还是 16px 的图标，但热区撑到 24×24（负 margin 抵掉，布局不动） */
-  padding: 4px;
-  margin: -4px -2px -4px -4px;
-  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
-}
-.rh-top .grip:hover { background: var(--hover); }
-.rh-top .grip:focus-visible { color: var(--text-2); outline-offset: 1px; }
-.mtx tbody th.rowh:hover .grip { color: var(--text-3); }
 .rh-top .key {
   font-size: 12.5px;
   font-weight: 600;
@@ -1391,7 +1382,7 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   <div class="intro" id="hint">
     <p>
       <b>行 = 动画，列 = 骨骼 / 通道。</b>格子里的值就是 JSON 里写的原文，<code>variable</code> / <code>query</code> 不代入数字。
-      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起通道列（左上角「骨骼」按钮能一次选多根）；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文；表格最底下一行是<b>叠加后的最终值</b>（变量和 query 原样带着，不硬算成数字）。
+      上下拖动行里的任意位置改顺序（按住整行都能拖）—— <b>上面的行先算</b>。点骨骼表头可以收起通道列（左上角「骨骼」按钮能一次选多根）；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文；表格最底下一行是<b>叠加后的最终值</b>（变量和 query 原样带着，不硬算成数字）。
     </p>
     <p class="sub">
       <code>this</code> 读到的是"上面所有行在这个通道上的累计"，所以 <code>0.5 - this</code> 等于把该轴设成绝对值；
@@ -1460,7 +1451,6 @@ function escapeHtml(s) {
 
 /* ---------------- 图标（Lucide 风格线性，统一 24 网格 / 1.75 描边） ---------------- */
 const ICON = {
-  grip: '<svg class="icon dots" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
   chevronDown: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></svg>',
   chevronUp: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></svg>',
   chevronRight: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg>',
@@ -2417,12 +2407,10 @@ function rowHead(r, allBones) {
       + '骨骼 ' + touched.length + '/' + all.length + '</span>'
     : '';
   return '<th class="rowh' + (r.ov ? ' ov' : '') + (it.enabled ? '' : ' off') + '" scope="row"'
-    + ' data-id="' + it.id + '" data-si="' + r.si + '"'
+    + ' data-id="' + it.id + '" data-si="' + r.si + '" tabindex="0"'
+    + ' aria-label="第 ' + (r.si + 1) + ' 行：' + escapeHtml(shortKey(it.animKey)) + '。拖动或按上下方向键调整顺序"'
     + ' style="--c:' + (it.color || 'var(--border-2)') + '">'
     + '<div class="rh-top">'
-    + '<span class="grip" role="button" tabindex="0"'
-    + ' aria-label="调整顺序：' + escapeHtml(shortKey(it.animKey)) + '，当前第 ' + (r.si + 1) + ' 行，按上下方向键移动"'
-    + ' title="上下拖动改顺序（整块行头都能拖）· 聚焦后按 ↑ ↓ 移动">' + ic('grip') + '</span>'
     + '<span class="idx">' + String(r.si + 1).padStart(2, '0') + '</span>'
     + '<span class="key" data-act="toggle" title="' + escapeHtml(it.animKey) + '">'
     + escapeHtml(shortKey(it.animKey)).replace(/\./g, '.<wbr>') + '</span>'
@@ -2738,8 +2726,8 @@ function moveRow(from, to) {
   const it = state.stack.splice(from, 1)[0];
   state.stack.splice(to, 0, it);
   renderFlip(); save();
-  const grip = document.querySelector('th.rowh[data-id="' + it.id + '"] .grip');
-  if (grip) grip.focus();
+  const th = document.querySelector('th.rowh[data-id="' + it.id + '"]');
+  if (th) th.focus();
   $('#stHint').textContent = '第 ' + (to + 1) + ' 行：' + shortKey(it.animKey);
   return true;
 }
@@ -2796,7 +2784,7 @@ function initMatrix() {
     if (e.key === 'Escape' && bmEl) closeBoneMgr();
   });
 
-  /* 键盘等价操作：聚焦行首抓手后 ↑ ↓ 换序，Home / End 到首末行；聚焦骨骼表头后 Enter / 空格隐藏 */
+  /* 键盘等价操作：行首聚焦后 ↑ ↓ 换序，Home / End 到首末行；聚焦骨骼表头后 Enter / 空格隐藏 */
   host.addEventListener('keydown', e => {
     const bh = e.target.closest && e.target.closest('th.boneh[data-bone]');
     if (bh) {
@@ -2806,9 +2794,7 @@ function initMatrix() {
       }
       return;
     }
-    const grip = e.target.closest && e.target.closest('.grip');
-    if (!grip) return;
-    const th = grip.closest('th.rowh');
+    const th = e.target.closest && e.target.closest('th.rowh[data-id]');
     if (!th) return;
     const i = state.stack.findIndex(x => x.id === th.dataset.id);
     if (i < 0) return;
@@ -2908,15 +2894,16 @@ function initDrag() {
 
   host.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
-    const th = e.target.closest('th.rowh');
-    if (!th) return;
-    if (e.target.closest('.acts')) return;         // 眼睛 / 垃圾桶不参与拖拽
-    const si0 = +th.dataset.si;
+    const tr0 = e.target.closest('tbody tr.arow');
+    if (!tr0) return;
+    /* 按钮 / 展开 / 链接不参与拖拽；其余整行（行头 + 所有格子）都能起手 */
+    if (e.target.closest('button, a, input, textarea, select, [data-exp]')) return;
+    const si0 = +tr0.querySelector('th.rowh').dataset.si;
     if (!(si0 >= 0)) return;
     const x0 = e.clientX, y0 = e.clientY;
 
     const startDrag = ev => {
-      const id = th.dataset.id;
+      const id = tr0.dataset.id;
       const tr = rowEl(id);
       if (!tr) return;
       drag = {
@@ -3411,7 +3398,7 @@ function initDocs() {
   $('#btnDocs').addEventListener('click', () => {
     const docs = [
       ['order', '这张表怎么读', '<strong>一行 = 一段动画，一列 = 骨骼下面的一个通道</strong>（<code>head · rotation</code> 就是一列）。上面第一行先算，越往下越靠后叠。单元格里的值就是 JSON 里写的那几个字面量，<strong>没有代入时间、也没有算出数字</strong> —— 表达式原样摆着，因为你要看的是「作者写了什么」。'],
-      ['layers', '顺序就是语义', '拖动行首的抓手可以把整段动画上下挪。<code>this</code> 读到的是它<strong>上面</strong>所有行的累计，<code>override</code> 只抹掉它上面那些行 —— 所以换顺序 = 换结果，这也是这套动画系统里最容易踩的坑。'],
+      ['layers', '顺序就是语义', '整行按住都能拖，把整段动画上下挪。<code>this</code> 读到的是它<strong>上面</strong>所有行的累计，<code>override</code> 只抹掉它上面那些行 —— 所以换顺序 = 换结果，这也是这套动画系统里最容易踩的坑。'],
       ['eyeOff', '只看想看的骨骼', '点<strong>骨骼表头</strong>（<code>root</code> / <code>head</code> 那一格）可以把它下面的通道列收起来，腾出横向空间。收起来只是不显示，<strong>不影响 <code>this</code> 与 <code>override</code> 的判定</strong>；矩阵上方会出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。'],
       ['undo', '撤销 / 重做', 'Ctrl+Z 撤销，Ctrl+Y（或 Ctrl+Shift+Z）重做，顶栏两个箭头按钮也能点。顺序调整、启停、增删、收起骨骼列都能回退，最多 80 步；在输入框里仍然是浏览器自带的撤销，不会被抢。'],
       ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。只有<strong>引用了 this 的那一条轴</strong>会标蓝，行头另有 <code>this ×N</code> 计数。'],

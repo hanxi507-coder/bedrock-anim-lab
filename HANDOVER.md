@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 22:28（接手第十二次改动）** · `index.html` **3462 行 / 140,121 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 23:18（接手第十三次改动）** · `index.html` **3449 行 / 139,499 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        140121 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       157592 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        139499 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       177675 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -309,7 +309,7 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 
 | 函数 | 职责 |
 | --- | --- |
-| `initDrag()` | 跟手拖拽换序（手机 app 那种）：整块 `th.rowh` 起手（眼睛/垃圾桶除外），过 5px 阈值才进拖拽。被拖的行加 `.lift`，`translateY` 贴着指针走；指针越过别的行中线时**立刻改 `state.stack` 并 `render()`**，其它行用 FLIP 滑到新位置（190ms），被拖的行自己重新贴回指针。松手才 `save()` + toast；拖完 300ms 内的 click 被 `lastDragAt` 吞掉 |
+| `initDrag()` | 跟手拖拽换序（手机 app 那种）：**整行任意位置**都能起手（`button` / `[data-exp]` / 链接输入框除外），过 5px 阈值才进拖拽。被拖的行加 `.lift`，`translateY` 贴着指针走；指针越过别的行中线时**立刻改 `state.stack` 并 `render()`**，其它行用 FLIP 滑到新位置（190ms），被拖的行自己重新贴回指针。松手才 `save()` + toast；拖完 300ms 内的 click 被 `lastDragAt` 吞掉 |
 | `initMatrix()` | 表内点击委托：点骨骼表头 → `hideBone()`；`[data-act]` = toggle / remove。键盘：骨骼表头聚焦后 Enter / 空格隐藏，抓手聚焦后 ↑↓ / Home / End 换序 |
 | `toggleItem()` / `removeItem()` | 启停 / 删除一行 |
 | `initColbar()` | 「已隐藏」栏点击委托：`[data-show]` → `showBone()`，`#colShowAll` → 清空 `state.hiddenBones` |
@@ -387,7 +387,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 | 操作 | 结果 |
 | --- | --- |
-| 拖行首上下拖 | 行跟手走、其它行实时让位（手机 app 的手感）；松手才落库，`⟂` 与蓝标全程跟着重算 |
+| 按住整行上下拖 | 行跟手走、其它行实时让位（手机 app 的手感）；松手才落库，`⟂` 与蓝标全程跟着重算。格子里的值也能起手，按钮和「展开」除外 |
 | 点骨骼表头（`root` / `head` 那一格） | 收起该骨骼的全部通道列；矩阵上方出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。**只影响显示** |
 | `Alt` + 点骨骼表头 | 只看这一根（其余全收起），再 Alt + 点还原 |
 | 点左上角「骨骼」按钮 | 弹出面板列出所有骨骼，点芯片开/关（面板不关，可以连着点），底部「全部显示 / 全部隐藏」；点面板外面或 Esc 收起 |
@@ -474,13 +474,23 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 14. **横向滚动**：把矩阵横向滚到底，行头（尤其 `player.sleeping` 那条浅琥珀底）必须完全不透明，不能透出下面格子的文字。
 15. **长值折叠**：`humanoid.bob` 的左右臂 z 轴、`player.sleeping` 的 root.position/rotation 默认显示成一行 + 省略号，格子右下角有「展开」；点开后完整换行、按钮变「收起」；其余短值不受影响。
 16. **最终值**：底部一行左边是「最终值 · 不代入数字」，**没有时间控件**；默认 5 行时 `body.rotation` 是 `0 / 0 / 2`（sneaking 的 `0.5 - this` 被 athena 的 `-this` 抵掉），`head.rotation` 是 `30/0/0`（override 清零后 sleeping 的 `30-this`），`leftarm.rotation` 是 `10/0/-5`（`variable.tcos0` 被 `-this + 10` 消掉），`root.position` 显示成带 `query.body_y_rotation` 的长表达式并带「展开」。
-17. **换序手感**：按住行首往下拖，那一行会跟手走并盖住经过的行，其它行实时让位（190ms 滑动）；拖到第 4 行再松手，顺序真的落到第 4 位，不是只挪一格。松手后位置保持、刷新后还在。
+17. **换序手感**：按住行里任意位置（行头或格子）往下拖，那一行会跟手走并盖住经过的行，其它行实时让位（190ms 滑动）；拖到第 4 行再松手，顺序真的落到第 4 位，不是只挪一格。松手后位置保持、刷新后还在。
 18. **快速藏骨骼**：左上角「骨骼」按钮弹出 8 个芯片（当前 8/8），点 `head` → 芯片变暗、表头少一列、顶部出现「已隐藏 1 根骨骼」、面板不关且计数变 7/8；「全部显示」回到 8/8。`Alt` + 点 `body` 表头 → 只剩 body 一列，再 Alt + 点还原。
 19. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 23:15 · 删掉抓手图标，整行都能拖
+
+- 行首那个「⋮⋮」抓手（`.grip`）删了：它本来只是拖拽的提示，现在整行都能拖，图标反而占地方。顺带删掉 `.rh-top .grip` 的三条样式和 `ICON.grip`。
+- 拖拽起手从 `th.rowh` 放宽到 **`tr.arow` 任意位置**，只排除 `button` / `[data-exp]` / `a` / `input`（眼睛、垃圾桶、展开按钮照旧不拖）。格子里的表达式也能起手。
+- 键盘可达性搬到 `th.rowh` 自己身上：`tabindex="0"` + `aria-label="第 N 行：xxx。拖动或按上下方向键调整顺序"`，`moveRow()` 之后焦点还在这一行上；`↑ ↓ Home End` 的逻辑改成从 `closest('th.rowh[data-id]')` 取行。
+- 光标：`tr.arow > td` 和 `th.rowh` 都是 `grab`，格子里只有按钮和「展开」是 `pointer`。
+- 验证（探针，合成 KeyboardEvent）：`focusOk: true` → `ArrowDown` 后 bob 从第 1 掉到第 2，焦点仍在 `th.rowh`；`hasGrip: false`；`bsk drag` 从某个**单元格**拖到别的行，顺序正确（move 从第 1 挪到第 4）。
+- `preview.png` 重拍。
+
 
 ### 2026-11-26 22:25 · 快速隐藏骨骼（面板 + Alt 独显）
 
