@@ -1841,7 +1841,12 @@ function boneRank(bone) {
 }
 
 function buildMatrix() {
-  const rows = state.stack.map((item, si) => ({ item, si, ov: !!item.flags.override }));
+  /* ov = 这一段动画是否带 override（身份，停用也还是 override 动画）
+     ovOn = 它此刻是否真的在生效（停用的行不参与判定，见 §10） */
+  const rows = state.stack.map((item, si) => {
+    const ov = !!item.flags.override;
+    return { item, si, ov, ovOn: ov && item.enabled };
+  });
   const boneOrder = [];
   const perBone = new Map();              // bone -> Set(base)
   rows.forEach(r => r.item.channels.forEach(ch => {
@@ -1855,7 +1860,7 @@ function buildMatrix() {
   });
   const cols = [];
   groups.forEach(g => g.bases.forEach(base => cols.push({ bone: g.bone, base })));
-  return { rows, groups, cols, bounds: rows.filter(r => r.ov) };
+  return { rows, groups, cols, bounds: rows.filter(r => r.ovOn) };
 }
 
 /* 这一格是否被下面某个 override 行清掉 */
@@ -1978,7 +1983,7 @@ function render() {
 
   const body = rows.map(r => {
     let out = '';
-    if (r.ov) {
+    if (r.ovOn) {
       out += '<tr class="bandrow"><td colspan="' + (cols.length + 1) + '">'
         + '<span class="ovline">' + ic('override')
         + '上面的行在 <b>' + r.item.bones.join(', ') + '</b> 上的累积到这一行作废 —— 下面几行从这个新起点重新叠</span>'

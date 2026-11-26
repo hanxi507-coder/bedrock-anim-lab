@@ -1,7 +1,8 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：文件 `index.html` 约 100.4 KB / 2562 行，`node --check` 通过。
+> 最后更新：**2026-11-26 14:05**（接手第一次改动）· `index.html` **2605 行 / 102,521 B**，`node --check` 通过。
+> 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
 
@@ -38,8 +39,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 | 标记 | 含义 |
 | --- | --- |
 | 蓝色表达式 | 这一条轴（x/y/z 单条）的原文里出现 `this` |
-| 琥珀色横带 | 这一行带 `override_previous_animation: true`，它把上面这些行在它碰到的骨骼上全抹掉 |
-| 格子划掉 + `⟂` | 这一格被下面的某一行 override 抹掉了 |
+| 琥珀色横带 | 这一行带 `override_previous_animation: true`，它把上面这些行在它碰到的骨骼上全抹掉。**该行被眼睛停用时横带不出现**（见 §5.2） |
+| 格子划掉 + `⟂` | 这一格被下面的某一行 override 抹掉了（`⟂` 在格子**右下角**，不是右上角） |
 
 一句话对比：**`this` 是“往上读到哪”，`override` 是“往上全抹掉”。换顺序 = 换结果。**
 
@@ -69,12 +70,15 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 ## 3. 文件清单
 
 ```
-D:\scripts\bedrock-anim-lab\
-├─ index.html        100437 B   ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       131289 B   默认 5 行矩阵截图（深色）
-├─ samples.png       140499 B   示例库弹窗截图
-├─ server.js            803 B   极简静态服务（8765，no-store）
-└─ _v1-viewer.html   124345 B   v1（3D 版）备份，不要拿去改
+D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
+├─ index.html        102521 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       142800 B  默认 5 行矩阵截图（深色，1723×857，2026-11-26 重拍）
+├─ samples.png       153907 B  示例库弹窗截图（深色，同上）
+├─ server.js            803 B  极简静态服务（8765，no-store）
+├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
+├─ HANDOVER.md                 本文
+├─ .gitignore / .gitattributes 忽略 _check.js / _backup；**关掉一切行尾转换**（`* -text`）
+└─ _backup/index-2026-11-26-1401.html   改 bug 前的手工备份（与基线 commit 同内容）
 ```
 
 ---
@@ -123,8 +127,13 @@ D:\scripts\bedrock-anim-lab\
 这一行带 `true` 时，它先把自己碰到的骨骼清成 `0/0/0`（scale 是 `1/1/1`），再写自己的值 —— 也就是**把上面所有行在这些骨骼上的累积全抹掉**。
 
 在矩阵里表现为：
-- 该行上方插入一条琥珀色横带：`先把 head, root 清成 0 / 1 再写自己的值 —— 上面的行在这些骨骼上的累积到这一行作废`；
-- 被抹掉的格子（`deadAt()`）加 `.dead`，文字划掉 + 右上角 `⟂`。
+- 该行上方插入一条琥珀色横带（原文）：`上面的行在 head, root 上的累积到这一行作废 —— 下面几行从这个新起点重新叠`；
+- 被抹掉的格子（`deadAt()`）加 `.dead`，文字划掉（透明度 .42）+ **右下角** `⟂`。
+
+**停用（点眼睛）时不生效**：横带不出现，上方格子也不再划掉。实现上 `buildMatrix()` 给每行算了两个位：
+`ov`（这段动画是否带 override，身份，停用也还是）与 `ovOn`（此刻是否真的在生效 = `ov && enabled`）；
+`bounds` 只收 `ovOn` 的行，横带也用 `if (r.ovOn)`。改这里时两个位别混用 —— 2026-11-26 之前只判了 `ov`，
+导致「停用 override 行后横带照画、下面照划」，与「停用行不参与判定」自相矛盾。
 
 ### 5.3 累加规则（概念层，当前 UI 只展示原文不做数值）
 
@@ -140,7 +149,14 @@ D:\scripts\bedrock-anim-lab\
 "rotation": { "0.0": [0,0,0], "0.5": { "pre": [0,0,0], "post": [10,0,0] }, "1.0": [10,0,0] }
 ```
 
-矩阵里对关键帧只列**前 3 帧 + 最后一帧**，标 `… 共 N 帧`；`pre ≠ post` 的那一帧加下划线（跳变点）。逻辑在 `chanHTML()`。
+矩阵里对关键帧：**≤ 5 帧全列；> 5 帧只列前 2 帧 + 最后一帧**，中间插一条 `… 共 N 帧`；`pre ≠ post` 的那一帧加下划线（跳变点）。逻辑在 `chanHTML()`：
+
+```js
+const head = ks.length > 5 ? ks.slice(0, 2) : ks;   // 注意是 2 不是 3
+const tail = ks.length > 5 ? ks[ks.length - 1] : null;
+```
+
+（旧文档写「前 3 帧」，与代码不符；已按代码改正。若要改成 3 帧，同时改这两行即可。）
 
 ### 5.5 Molang 求值层（现状：**已实现但没接线**）
 
@@ -303,12 +319,14 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 1. ~~蓝色 `this` 高亮未做浏览器验证~~ → **已实测通过**（浅色主题，`.expr.th` 47 个 / 普通 `.expr` 48 个；computed text `rgb(29,78,216)`，bg `rgba(37,99,235,.1)`，border `rgba(37,99,235,.34)`；`td.hasthis` = 0）。`humanoid.sneaking` 的 body.rotation 只有 x 变蓝，`armor_stand.athena_pose` 整行蓝，`player.sleeping` 上方琥珀带 + `head`/`root` 划掉，均符合预期。
 2. ~~键盘导航缺失~~ → **已补**（见 §10 键盘表与附录 B §12）。
 3. 浅色主题下矩阵未逐项复查（`.bandrow` 琥珀带、`.dead` 灰化在浅色下的对比度已截图看过，可接受；`.expr.th` 已实测）。
-4. `preview.png` / `samples.png` 可能落后于当前代码（深色、默认 5 行）。
+4. ~~`preview.png` / `samples.png` 落后于当前代码~~ → **2026-11-26 已按当前代码重拍**（深色、默认 5 行，1723×857）。注意旧图里格内的 `this` 小徽标已被移除，现在只有**逐轴蓝色表达式** + 行首 `this ×N` chip，看旧图别以为丢了功能。
 5. **Molang 求值链是死代码**（见 §5.5）：要么接回来做「求值」视图，要么删除。
 6. `applyWeight()` / `fmtV()` 无调用点。
 7. 矩阵版 `initDrag()` **没有自动滚动**（v3 卡片版有过 110px 边缘自动滚动）；行数多时拖到屏幕外会吃力，可补。
-8. 无 git 仓库，建议 `git init` 后再动大手术。
+8. ~~无 git 仓库~~ → **已 `git init`**（`main`，基线 `0eeaf25`；`.gitattributes` 用 `* -text` 锁死行尾，避免 Windows autocrlf 改动字节）。提交身份是仓库内的 `DUANQIUYI <duanqiuyi@localhost>`，想换就 `git config user.email ...`。
 9. 移动端只做了「不横向溢出」级别的适配，矩阵本身必须横向滚动（列多时），可考虑冻结骨骼表头行。
+10. 示例库分组说明 `.lib-note` 用 `--text-3`（深色 #71717A on #141417 ≈ **3.8:1**），11.5px 正文低于 WCAG AA 4.5:1，截图里几乎看不清。改 `--text-2`（≈5.9:1）即可，但会动视觉层级，**未擅自改**。
+11. `load()` 里 `!data.items.length` 直接返回 false，于是**把行全删光再刷新，5 条默认示例会自己回来**。空状态（`#empty`）其实是合法状态，是否要持久化空栈待定。
 
 ---
 
@@ -335,7 +353,26 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 2. `sneaking` 的 `body.rotation` 的 **x** 是蓝的，y/z 不是；`athena_pose` 整行都是蓝的；
 3. `player.sleeping` 上方有琥珀横带；`sneaking`、`athena_pose` 在 `head` 上的格子被划掉并带 `⟂`（它们写了 `head`，而 `sleeping` 会清 `head`、`root`）；
 4. 示例库勾选一条 → 关闭弹窗前后都能在矩阵里看到它（且是启用状态）；
-5. 导入 `C:\Users\DUANQIUYI\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈。
+5. 导入 `C:\Users\DUANQIUYI\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈；
+6. **点掉 `player.sleeping` 的眼睛** → 琥珀带消失、`sneaking`/`athena_pose` 的 `head` 格子恢复成正常值（`⟂` 清零，状态栏变成「5 个动画（4 启用）· 7 根骨骼 · 10 个通道」）；再点亮 → 全部复原。这条是 2026-11-26 修的 bug 的回归用例。
+
+---
+
+## 14. 变更记录（接手后）
+
+### 2026-11-26 14:05 · 修「停用 override 行仍然生效」
+
+- **现象**：点掉 `player.sleeping` 的眼睛后，琥珀横带照样画、`sneaking`/`athena_pose` 的 `head` 格子照样划掉，和 §10「停用行不参与 this 与 override 判定」自相矛盾。
+- **原因**：`buildMatrix()` 的 `bounds` 取的是 `rows.filter(r => r.ov)`，`render()` 也是 `if (r.ov)` —— 只判了「这是不是一段 override 动画」，没判「它此刻是否启用」。
+- **修法**（`index.html` 3 处，+8 −3）：行记录加 `ovOn = ov && item.enabled`；`bounds` 只收 `ovOn`；横带改 `if (r.ovOn)`；`ov` 留着给行首琥珀竖条（那是身份，停用也还是 override 动画）。
+- **验证**（bsk + `http://127.0.0.1:8765`，浅/深两套主题都看过）：停用 `sleeping` → 无「作废」横带、`⟂` 为 0、状态栏 `5 个动画（4 启用）· 7 根骨骼 · 10 个通道`；重新点亮 → 横带回来、`⟂` 回到 2 个格子。
+- **基线**：git `0eeaf25`（改前）→ 修复提交。
+
+### 同批顺带
+
+- `git init`（`main`），`.gitattributes` 写 `* -text` 关掉行尾转换（`git show :index.html` 与工作区 sha256 一致）。
+- 文档纠错：关键帧列表是**前 2 帧 + 末帧**（不是前 3）；`⟂` 在**右下角**（不是右上角）；文件行数/体积更新。
+- `preview.png` / `samples.png` 按当前代码重拍。
 
 ---
 
