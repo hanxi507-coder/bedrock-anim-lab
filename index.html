@@ -1,0 +1,2601 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-immersive-translate-page-theme="dark"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bedrock Animation Stack · 5 个动画</title>
+<style>
+/* ============================================================
+   Design Tokens
+   ============================================================ */
+:root, html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #09090B;
+  --bg-2: #111113;
+  --card: #141417;
+  --card-hover: #17171A;
+  --hover: #1C1C21;
+  --border: #27272A;
+  --border-2: #3F3F46;
+  --text: #F4F4F5;
+  --text-2: #A1A1AA;
+  --text-3: #71717A;
+  --accent: #6366F1;
+  --accent-hover: #7C7FF5;
+  --accent-fg: #FFFFFF;
+  --accent-soft: rgba(99, 102, 241, .14);
+  --amber: #F59E0B;
+  --amber-soft: rgba(245, 158, 11, .09);
+  --amber-line: rgba(245, 158, 11, .34);
+  --violet: #A78BFA;
+  --violet-soft: rgba(167, 139, 250, .12);
+  --sky: #38BDF8;
+  --sky-soft: rgba(56, 189, 248, .10);
+  --danger: #F87171;
+  --danger-soft: rgba(248, 113, 113, .10);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .45);
+  --shadow-2: 0 16px 40px -16px rgba(0, 0, 0, .72), 0 2px 8px rgba(0, 0, 0, .32);
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 12px;
+  --t-fast: 140ms;
+  --t-base: 200ms;
+  --t-slow: 280ms;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --sans: "Inter", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI",
+    "PingFang SC", "Source Han Sans SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", "Geist Mono", "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, ui-monospace, monospace;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #FAFAFA;
+  --bg-2: #F4F4F5;
+  --card: #FFFFFF;
+  --card-hover: #FCFCFD;
+  --hover: #F4F4F5;
+  --border: #E4E4E7;
+  --border-2: #D4D4D8;
+  --text: #18181B;
+  --text-2: #52525B;
+  --text-3: #71717A;
+  --accent: #4F46E5;
+  --accent-hover: #4338CA;
+  --accent-fg: #FFFFFF;
+  --accent-soft: rgba(79, 70, 229, .08);
+  --amber: #B45309;
+  --amber-soft: rgba(180, 83, 9, .07);
+  --amber-line: rgba(180, 83, 9, .28);
+  --violet: #7C3AED;
+  --violet-soft: rgba(124, 58, 237, .08);
+  --sky: #0369A1;
+  --sky-soft: rgba(3, 105, 161, .07);
+  --danger: #DC2626;
+  --danger-soft: rgba(220, 38, 38, .07);
+  --shadow-1: 0 1px 2px rgba(24, 24, 27, .06);
+  --shadow-2: 0 18px 44px -18px rgba(24, 24, 27, .22), 0 2px 8px rgba(24, 24, 27, .06);
+}
+
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) {
+    color-scheme: light;
+    --bg: #FAFAFA;
+    --bg-2: #F4F4F5;
+    --card: #FFFFFF;
+    --card-hover: #FCFCFD;
+    --hover: #F4F4F5;
+    --border: #E4E4E7;
+    --border-2: #D4D4D8;
+    --text: #18181B;
+    --text-2: #52525B;
+    --text-3: #71717A;
+    --accent: #4F46E5;
+    --accent-hover: #4338CA;
+    --accent-fg: #FFFFFF;
+    --accent-soft: rgba(79, 70, 229, .08);
+    --amber: #B45309;
+    --amber-soft: rgba(180, 83, 9, .07);
+    --amber-line: rgba(180, 83, 9, .28);
+    --violet: #7C3AED;
+    --violet-soft: rgba(124, 58, 237, .08);
+    --sky: #0369A1;
+    --sky-soft: rgba(3, 105, 161, .07);
+    --danger: #DC2626;
+    --danger-soft: rgba(220, 38, 38, .07);
+    --shadow-1: 0 1px 2px rgba(24, 24, 27, .06);
+    --shadow-2: 0 18px 44px -18px rgba(24, 24, 27, .22), 0 2px 8px rgba(24, 24, 27, .06);
+  }
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";
+}
+
+body.dragging { user-select: none; cursor: grabbing; }
+
+h1, h2, h3, h4, p { margin: 0; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+::selection { background: var(--accent-soft); }
+
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border: 3px solid var(--bg);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+.icon.sm { width: 14px; height: 14px; }
+.icon.dots { fill: currentColor; stroke: none; }
+[hidden] { display: none !important; }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.btn:hover { background: var(--hover); border-color: var(--border-2); color: var(--text); }
+.btn:active { background: var(--bg-2); }
+.btn .icon { color: var(--text-3); transition: color var(--t-fast) var(--ease); }
+.btn:hover .icon { color: var(--text-2); }
+
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-fg);
+  box-shadow: var(--shadow-1);
+}
+.btn.primary .icon { color: currentColor; opacity: .95; }
+.btn.primary:hover { background: var(--accent-hover); color: var(--accent-fg); }
+
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-3); }
+.btn.ghost:hover { background: var(--hover); color: var(--text); }
+
+.btn.icon-only { width: 34px; padding: 0; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn.loading { pointer-events: none; color: var(--text-3); }
+.btn.loading .icon { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============================================================
+   Navigation
+   ============================================================ */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 60;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+.brand-text { display: flex; flex-direction: column; min-width: 0; }
+.brand-text strong {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.3;
+}
+.brand-text small {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.3;
+  letter-spacing: .01em;
+}
+
+.nav-spacer { flex: 1; }
+.nav-actions { display: flex; align-items: center; gap: 6px; }
+
+/* dropdown */
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 268px;
+  padding: 6px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+  z-index: 70;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.menu.open { opacity: 1; transform: none; pointer-events: auto; }
+.menu .lab {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.menu .sep { height: 1px; margin: 6px 4px; background: var(--border); }
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.menu button:hover { background: var(--hover); color: var(--text); }
+.menu button .k { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.menu button .idx {
+  width: 18px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: right;
+}
+
+/* ============================================================
+   Shell
+   ============================================================ */
+.shell {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 20px 24px 72px;
+  --cols: 108px 112px repeat(3, minmax(64px, 104px)) minmax(140px, 1fr);
+}
+
+/* ============================================================
+   Matrix · 列 = 动画，行 = 骨骼 / 通道
+   ============================================================ */
+.mwrap {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  overflow: auto;
+  max-height: calc(100vh - 168px);
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 64px 24px;
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-lg);
+  background: var(--bg-2);
+  text-align: center;
+}
+.empty .icon { width: 26px; height: 26px; color: var(--text-3); }
+.empty h3 { font-size: 14px; font-weight: 600; color: var(--text-2); }
+.empty p { font-size: 12.5px; color: var(--text-3); line-height: 1.7; max-width: 56ch; }
+.empty code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+.mtx {
+  border-collapse: separate;  border-spacing: 0;
+  table-layout: fixed;
+  width: max(100%, calc(158px + var(--ncol, 1) * 226px));
+  font-size: 12.5px;
+}
+
+/* ---- 表头 ---- */
+.mtx thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  font-weight: 400;
+  padding: 9px 11px 10px;
+  width: 226px;
+  min-width: 0;
+}
+.mtx thead th.corner {
+  left: 0;
+  z-index: 6;
+  min-width: 158px;
+  width: 158px;
+  display: table-cell;
+  vertical-align: bottom;
+  padding-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  box-shadow: inset 0 3px 0 var(--border);
+}
+
+/* ---- 列 ---- */
+.mtx th.col {
+  box-shadow: inset 0 2px 0 var(--c, var(--border-2));
+}
+.mtx th.col.ov {
+  background: var(--amber-soft);
+  box-shadow: inset 0 2px 0 var(--amber);
+  border-left: 1px solid var(--amber-line);
+  border-right: 1px solid var(--amber-line);
+}
+.mtx th.col.off { background: var(--bg-2); }
+.mtx th.col.off .key { color: var(--text-3); }
+.mtx th.col.off .col-body { opacity: .45; }
+
+.ch-top { display: flex; align-items: center; gap: 6px; }
+.ch-top .grip { color: var(--border-2); }
+.mtx th.col:hover .ch-top .grip { color: var(--text-3); }
+.ch-top .key {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  cursor: pointer;
+}
+.ch-top .key:hover { text-decoration: underline; text-underline-offset: 3px; }
+.ch-top .idx {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.col-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.col-meta .acts { margin-left: auto; display: flex; gap: 2px; }
+.col-meta .len {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.ovline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+  font-size: 10.5px;
+  color: var(--amber);
+  line-height: 1.3;
+}
+.ovline .icon { width: 12px; height: 12px; flex: none; }
+
+/* ---- 行标签 ---- */
+.mtx tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--card);
+  text-align: left;
+  font-weight: 400;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+.mtx tbody tr.grp th {
+  background: var(--bg-2);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -.005em;
+}
+.mtx tbody tr.grp th .ghost-dot { margin-right: 6px; }
+.mtx tbody tr.chan th {
+  padding-left: 24px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  letter-spacing: .01em;
+}
+.mtx tbody tr.chan:hover th { color: var(--text-2); }
+.mtx tbody tr.grp td {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+.mtx tbody tr.chan td {
+  border-bottom: 1px solid var(--border);
+  padding: 7px 11px;
+  vertical-align: top;
+}
+
+/* ---- 单元格 ---- */
+.mtx td.none {
+  color: var(--border-2);
+  text-align: center;
+  font-family: var(--mono);
+}
+.mtx td.cell { position: relative; }
+.mtx td.cell.dead .vec,
+.mtx td.cell.dead .keys { opacity: .42; }
+.mtx td.cell.dead .vec span,
+.mtx td.cell.dead .keys span { text-decoration: line-through; text-decoration-color: var(--border-2); }
+.mtx td.cell.dead::after {
+  content: '⟂';
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
+  font-size: 10px;
+  color: var(--amber);
+}
+
+.vec { display: flex; flex-direction: column; gap: 2px; }
+.vec span {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  line-height: 1.5;
+}
+.vec i {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-style: normal;
+  color: var(--text-3);
+  width: 8px;
+  flex: none;
+}
+.num {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.expr {
+  display: block;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  line-height: 1.45;
+}
+/* 只有引用了 this 的那一条轴标蓝，不标整个格子 */
+.expr.th {
+  color: #93C5FD;
+  background: rgba(59, 130, 246, .13);
+  border-color: rgba(59, 130, 246, .42);
+}
+html[data-theme="light"] .expr.th {
+  color: #1D4ED8;
+  background: rgba(37, 99, 235, .10);
+  border-color: rgba(37, 99, 235, .34);
+}
+.keys { display: flex; flex-direction: column; gap: 3px; }
+.keys span {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.keys b {
+  font-weight: 400;
+  color: var(--text-3);
+  min-width: 26px;
+  font-variant-numeric: tabular-nums;
+}
+.keys u { text-decoration: none; color: var(--border-2); }
+.keys .more { color: var(--text-3); font-size: 10.5px; }
+.keys .jump { color: var(--amber); }
+
+/* ---- 拖拽 ---- */
+.vline {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  z-index: 96;
+  pointer-events: none;
+}
+.dragtag {
+  position: fixed;
+  z-index: 97;
+  padding: 5px 9px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+  font-size: 12px;
+  color: var(--text);
+  pointer-events: none;
+  transform: translate(12px, -50%);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.dragging { cursor: grabbing; user-select: none; }
+body.dragging .mtx th.col { transition: none; }
+
+/* ============================================================
+   Footer
+   ============================================================ */
+.statusbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.statusbar .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+  margin-right: 7px;
+}
+.statusbar .sep { width: 1px; height: 10px; background: var(--border); }
+.statusbar .r { margin-left: auto; font-family: var(--sans); }
+
+/* ============================================================
+   Modal
+   ============================================================ */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  animation: fade var(--t-base) var(--ease);
+}
+.modal[hidden] { display: none; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-card {
+  width: min(760px, 100%);
+  max-height: min(84vh, 880px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  animation: rise var(--t-slow) var(--ease);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.modal-card header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 14px 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-card h3 { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
+.modal-card header .icon-btn { margin-left: auto; }
+
+.modal-body { padding: 18px; overflow: auto; font-size: 13px; line-height: 1.75; color: var(--text-2); }
+.modal-foot {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.note { font-size: 12.5px; line-height: 1.7; color: var(--text-3); margin: 0 0 12px; }
+.note code, .modal-body code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+
+textarea {
+  width: 100%;
+  min-height: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.65;
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+textarea:hover { border-color: var(--border-2); }
+textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.err { min-height: 18px; padding-top: 6px; font-size: 12px; color: var(--danger); }
+
+.pick-list { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow: auto; padding-right: 4px; }
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.pick:hover { border-color: var(--border-2); background: var(--hover); }
+.pick input { accent-color: var(--accent); width: 14px; height: 14px; }
+.pick .pl { margin-left: auto; font-size: 11px; color: var(--text-3); }
+
+.docs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* ---------- 示例库 ---------- */
+.lib { display: flex; flex-direction: column; gap: 20px; }
+.lib-group { display: flex; flex-direction: column; gap: 6px; }
+.lib-head { display: flex; align-items: center; gap: 8px; }
+.lib-head .icon { width: 14px; height: 14px; color: var(--text-3); }
+.lib-head h4 { font-size: 12.5px; font-weight: 600; color: var(--text); letter-spacing: .01em; }
+.lib-head .cnt {
+  min-width: 18px; height: 18px; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 999px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--text-3);
+}
+.lib-head .btn.tiny { margin-left: auto; }
+.lib-head .btn.tiny + .btn.tiny { margin-left: 0; }
+.btn.tiny { height: 26px; padding: 0 9px; font-size: 11.5px; border-radius: var(--r-sm); }
+.lib-note { margin: 0 0 2px; font-size: 11.5px; line-height: 1.65; color: var(--text-3); }
+.lib-note code {
+  font-family: var(--mono); font-size: 11px; padding: 1px 4px;
+  border-radius: 4px; background: var(--bg-2); color: var(--text-2);
+}
+.lib-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.lib-row:hover { border-color: var(--border-2); background: var(--hover); }
+.lib-row input { accent-color: var(--accent); width: 14px; height: 14px; flex: none; }
+.lib-row .nm { font-family: var(--mono); font-size: 12px; color: var(--text); white-space: nowrap; }
+.lib-row .ds { font-size: 11.5px; color: var(--text-3); margin-left: auto; text-align: right; }
+.lib-row .k {
+  flex: none; font-size: 10.5px; color: var(--text-3);
+  padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px;
+}
+.lib-row.in-stack { background: var(--card); border-color: var(--border-2); }
+.lib-row.in-stack .k { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, transparent); }
+.lib-row .ds { order: 2; }
+.lib-row .k { order: 3; }
+.doc-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+}
+.doc-card h4 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.doc-card h4 .icon { color: var(--text-3); }
+.doc-card p { margin: 0; font-size: 12px; line-height: 1.75; color: var(--text-2); }
+
+/* ============================================================
+   Toasts
+   ============================================================ */
+.toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 56px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  animation: toast-in var(--t-base) var(--ease);
+}
+.toast .icon { color: var(--text-3); }
+.toast.good .icon { color: var(--accent); }
+.toast.bad { border-color: color-mix(in srgb, var(--danger) 34%, transparent); }
+.toast.bad .icon { color: var(--danger); }
+.toast code { font-family: var(--mono); font-size: 11.5px; color: var(--text); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ============================================================
+   Drop veil
+   ============================================================ */
+.dropveil {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: none;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+.dropveil.on { display: grid; }
+.dropveil .box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 44px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--r-xl);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+}
+.dropveil .box .icon { width: 22px; height: 22px; color: var(--accent); }
+.dropveil small { font-size: 11.5px; color: var(--text-3); }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 1023px) {
+  .nav { padding: 0 16px; }
+  .shell { padding: 16px 16px 72px; }
+  .legend { grid-template-columns: 96px 104px repeat(3, minmax(56px, 1fr)) 132px; }
+  .row { grid-template-columns: 96px 104px repeat(3, minmax(56px, 1fr)) 132px; }
+  .statusbar { padding: 0 16px; }
+  .docs { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 767px) {
+  .nav { flex-wrap: wrap; height: auto; min-height: 56px; row-gap: 6px; padding: 10px 14px; }
+  .nav-actions { gap: 4px; width: 100%; flex-wrap: wrap; }
+  .nav-spacer { display: none; }
+  .btn { height: 32px; padding: 0 10px; font-size: 12.5px; }
+  .btn.icon-only { width: 32px; }
+  .brand-text small { display: none; }
+
+  .shell { padding: 12px 12px 76px; }
+  .toolbar { top: 0; position: static; gap: 8px; padding: 8px; }
+  .time { min-width: auto; font-size: 12px; }
+  .track { order: 3; flex-basis: 100%; }
+  .divider { display: none; }
+  .field > label { display: none; }
+
+  .legend { display: none; }
+
+  .card-head { flex-wrap: wrap; row-gap: 6px; padding: 9px 8px; }
+  .head-right { margin-left: auto; }
+  .tags { padding-left: 10px; }
+  .bound { padding-left: 10px; }
+
+  .row {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.45fr);
+    gap: 2px 6px;
+    padding: 8px 10px;
+    border-radius: 0;
+  }
+  .row:hover { background: transparent; }
+  .row.first { margin-top: 0; padding-top: 8px; }
+  .bname { grid-column: span 2; font-size: 11px; }
+  .base { grid-column: span 2; justify-content: flex-end; }
+  .v { grid-column: span 1; font-size: 11.5px; }
+  .acc { grid-column: span 1; font-size: 11px; gap: 3px; }
+
+  .card-empty { padding-left: 12px; }
+  .modal { padding: 12px; }
+  .modal-card { max-height: 90vh; }
+  .modal-body { padding: 14px; }
+  .statusbar { height: 36px; font-size: 11px; }
+  .statusbar .r { display: none; }
+  .toasts { right: 12px; left: 12px; bottom: 48px; }
+  .toast { max-width: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+/* ---- 转置版：行 = 动画，列 = 骨骼 / 通道 ---- */
+.mtx {
+  width: max(100%, calc(232px + var(--ncol, 1) * 144px));
+}
+.mtx thead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.mtx thead th {
+  position: static;
+  width: auto;
+  min-width: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.mtx thead tr:first-child th {
+  height: 30px;
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--bg-2);
+}
+.mtx thead th.corner {
+  left: 0;
+  z-index: 7;
+  width: 232px;
+  min-width: 232px;
+  vertical-align: middle;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+}
+.mtx thead th.corner .dim { color: var(--border-2); }
+.mtx thead th.boneh {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mtx thead th.boneh .ghost-dot { margin-right: 5px; }
+.mtx thead th.chanh {
+  width: 144px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+  text-align: left;
+}
+
+.mtx tbody th.rowh {
+  width: 232px;
+  min-width: 232px;
+  padding: 7px 10px;
+  vertical-align: middle;
+  white-space: normal;
+  box-shadow: inset 3px 0 0 var(--c, var(--border-2));
+}
+.mtx tbody th.rowh.ov { background: var(--amber-soft); box-shadow: inset 3px 0 0 var(--amber); }
+.mtx tbody th.rowh.off { background: var(--bg-2); }
+.mtx tbody th.rowh.off .rh-top,
+.mtx tbody th.rowh.off .rh-meta { opacity: .45; }
+.rh-top { display: flex; align-items: center; gap: 6px; }
+.rh-top .grip {
+  color: var(--border-2);
+  flex: none;
+  cursor: grab;
+  border-radius: 4px;
+  padding: 1px;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.rh-top .grip:hover { background: var(--hover); }
+.rh-top .grip:focus-visible { color: var(--text-2); outline-offset: 1px; }
+.mtx tbody th.rowh:hover .grip { color: var(--text-3); }
+.rh-top .key {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+  flex: 1;
+  line-height: 1.3;
+  overflow-wrap: normal;
+  word-break: normal;
+  cursor: pointer;
+}
+.rh-top .key:hover { text-decoration: underline; text-underline-offset: 3px; }
+.rh-top .idx {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.rh-top .acts { margin-left: auto; display: flex; gap: 2px; flex: none; }
+.rh-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  padding-left: 16px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.rh-meta .len {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.rh-meta .tags { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.mtx tbody tr.arow td {
+  border-bottom: 1px solid var(--border);
+  border-left: 1px solid transparent;
+  padding: 6px 10px;
+  vertical-align: top;
+}
+.mtx tbody tr.arow:hover td { background: color-mix(in srgb, var(--card) 88%, var(--hover)); }
+.mtx tbody tr.arow.off td { opacity: .5; }
+.mtx tbody tr.arow.off th.rowh { opacity: 1; }
+
+.mtx tr.bandrow td {
+  padding: 5px 10px;
+  background: var(--amber-soft);
+  border-top: 1px solid var(--amber-line);
+  border-bottom: 1px solid var(--amber-line);
+}
+.mtx tr.bandrow .ovline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.mtx tr.bandrow .ovline b { color: var(--amber); font-weight: 600; font-family: var(--mono); }
+.mtx tr.bandrow .ovline .icon { color: var(--amber); }
+
+.mtx td.none { text-align: center; color: var(--border-2); font-family: var(--mono); }
+
+/* 纵向拖拽指示线 */
+.hline {
+  position: fixed;
+  z-index: 90;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
+}
+
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"></path>
+        <path d="M4 7.5l8 4.5 8-4.5M12 12v9"></path>
+      </svg>
+    </span>
+    <span class="brand-text">
+      <strong>Bedrock Animation Stack</strong>
+      <small>资源包动画叠加台 · 拖拽决定顺序与边界</small>
+    </span>
+  </div>
+
+  <div class="nav-spacer"></div>
+
+  <div class="nav-actions">
+    <button class="btn primary" id="btnImport">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 16V4M12 4L7.5 8.5M12 4l4.5 4.5M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
+      导入动画
+    </button>
+    <button class="btn" id="btnPaste">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M9 4h6v3H9z"></path><path d="M8 5.5H6.5A1.5 1.5 0 005 7v13a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 20V7a1.5 1.5 0 00-1.5-1.5H16"></path></svg>
+      粘贴
+    </button>
+    <button class="btn" id="btnSamples">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"></path></svg>
+      示例库
+    </button>
+    <button class="btn ghost icon-only" id="btnExport" aria-label="导出当前叠加结果" title="导出当前叠加结果">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 4v12M12 16l4-4M12 16l-4-4M5 20h14"></path></svg>
+    </button>
+    <button class="btn ghost icon-only" id="btnDocs" aria-label="语义说明与图例" title="语义说明与图例">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9.6 9.2a2.5 2.5 0 013.9 2.1c0 1.1-.6 1.5-1.4 2-.5.3-.9.7-.9 1.4v.4"></path><path d="M12 17.6h.01"></path></svg>
+    </button>
+    <button class="btn ghost icon-only" id="btnTheme" aria-label="切换到浅色模式" title="切换深浅色">
+      <svg class="icon" id="icoThemeDark" viewBox="0 0 24 24"><path d="M21 12.8A8.5 8.5 0 1111.2 3a7 7 0 009.8 9.8z"></path></svg>
+      <svg class="icon" id="icoThemeLight" viewBox="0 0 24 24" hidden=""><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+    </button>
+  </div>
+</header>
+
+<div class="shell">
+  <div class="intro" id="hint">
+    <p>
+      <b>行 = 动画，列 = 骨骼 / 通道。</b>格子里的值就是 JSON 里写的原文，<code>variable</code> / <code>query</code> 不代入数字。
+      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。
+    </p>
+    <p class="sub">
+      <code>this</code> 读到的是"上面所有行在这个通道上的累计"，所以 <code>0.5 - this</code> 等于把该轴设成绝对值；
+      <code>override_previous_animation</code> 会在自己这一行把上面的抹掉。示例逐字取自 bedrock-samples v1.26.50.4。
+    </p>
+  </div>
+
+  <div class="mwrap" id="mwrap"><div id="matrix"></div></div>
+
+  <div class="empty" id="empty" hidden="">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M4 7h7v7H4zM13 10h7v7h-7z"></path></svg>
+    <h3>动画栈是空的</h3>
+    <p>从右上角「示例」加入几段动画，或者把 bedrock-samples 里 <code>resource_pack/animations/*.json</code> 直接拖进窗口。</p>
+  </div>
+</div>
+
+<footer class="statusbar">
+  <span><span class="dot"></span><span id="stAnims">5 个动画</span></span>
+  <span class="sep"></span>
+  <span id="stBones">8 根骨骼</span>
+  <span class="sep"></span>
+  <span id="stChans">12 个通道</span>
+  <span class="r" id="stHint">拖动行首排序 · 拖文件进窗口导入</span>
+</footer>
+
+<div class="modal" id="modal" hidden="">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <header>
+      <h3 id="modalTitle">示例动画库</h3>
+      <button class="icon-btn" id="modalClose" aria-label="关闭">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+      </button>
+    </header>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot" id="modalFoot"><button class="btn" data-close="1">关闭</button></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<div class="dropveil" id="dropveil">
+  <div class="box">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M12 16V4M12 4L7.5 8.5M12 4l4.5 4.5M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
+    松手导入动画 JSON
+    <small>支持多文件，或整个 animations 目录</small>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept=".json,application/json" multiple="" hidden="">
+
+<script>
+"use strict";
+/* ============================================================
+   P2 · 工具 / Molang / 动画解析 / 示例
+   ============================================================ */
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const uid = (() => { let n = 0; return p => (p || 'id') + '_' + (++n).toString(36); })();
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ---------------- 图标（Lucide 风格线性，统一 24 网格 / 1.75 描边） ---------------- */
+const ICON = {
+  grip: '<svg class="icon dots" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
+  chevronDown: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></svg>',
+  chevronRight: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg>',
+  close: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+  trash: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5.2h5V7M6.6 7l.8 12h9.2l.8-12M10.6 11v4.6M13.4 11v4.6"/></svg>',
+  eye: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M2.6 12S6.2 5.8 12 5.8 21.4 12 21.4 12 17.8 18.2 12 18.2 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.9"/></svg>',
+  eyeOff: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M10.7 6.1A9.6 9.6 0 0112 6c5.8 0 9.4 6 9.4 6a17.6 17.6 0 01-2.8 3.6M6.5 8.3A17 17 0 002.6 12S6.2 18 12 18a9.4 9.4 0 003.7-.8"/><path d="M3.2 3.2l17.6 17.6"/></svg>',
+  loop: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M17 3.5l3.2 3.2L17 9.9"/><path d="M3.8 11.2V9.9a3.2 3.2 0 013.2-3.2h13.2"/><path d="M7 20.5l-3.2-3.2L7 14.1"/><path d="M20.2 12.8v1.3a3.2 3.2 0 01-3.2 3.2H3.8"/></svg>',
+  once: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6.5 5l9 7-9 7z"/><path d="M18.5 5.2v13.6"/></svg>',
+  hold: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M5.5 5l8.5 7-8.5 7z"/><path d="M16.5 5.2v13.6M19.5 5.2v13.6"/></svg>',
+  sigma: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M18 5.2H6l6.4 6.8L6 18.8h12"/></svg>',
+  ban: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M6.2 6.2l11.6 11.6"/></svg>',
+  swapped: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M7 4.2L3.6 7.6 7 11"/><path d="M3.6 7.6h13.6"/><path d="M17 19.8l3.4-3.4L17 13"/><path d="M20.4 16.4H6.8"/></svg>',
+  minus: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 12h12"/></svg>',
+  override: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M5.5 4.5v6.2a3 3 0 003 3h10.2"/><path d="M15.2 10.4l3.5 3.3-3.5 3.3"/></svg>',
+  thisMark: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4 12h10.5M11 8.2l3.8 3.8-3.8 3.8M19.5 5v14"/></svg>',
+  molang: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M8.4 4.2C7 4.2 6.5 5.1 6.5 6.5v3.1c0 1.4-.9 2.4-1.9 2.4 1 0 1.9 1 1.9 2.4v3.1c0 1.4.5 2.3 1.9 2.3"/><path d="M15.6 4.2c1.4 0 1.9.9 1.9 2.3v3.1c0 1.4.9 2.4 1.9 2.4-1 0-1.9 1-1.9 2.4v3.1c0 1.4-.5 2.3-1.9 2.3"/></svg>',
+  keyframe: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M12 3.4l8.6 8.6L12 20.6 3.4 12z"/></svg>',
+  fx: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M11.4 4.6L6 12.4h4.2l-2 7 9-11h-4.2l2-3.8z"/></svg>',
+  warn: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M12 4.2l8.6 15.4H3.4z"/><path d="M12 9.4v4.2M12 16.6h.01"/></svg>',
+  ok: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4.5 12.6l4.8 4.8L19.5 6.9"/></svg>',
+  info: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 11.2v5M12 7.8h.01"/></svg>',
+  layers: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M12 3.2l8.8 4.7L12 12.6 3.2 7.9z"/><path d="M3.2 13l8.8 4.7 8.8-4.7"/></svg>',
+  order: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/></svg>',
+  clock: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.4V12l3.2 2"/></svg>',
+  brace: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M9.2 4.2H8.4a2 2 0 00-2 2v3.6L4.6 12l1.8 2.2v3.6a2 2 0 002 2h.8M14.8 4.2h.8a2 2 0 012 2v3.6l1.8 2.2-1.8 2.2v3.6a2 2 0 01-2 2h-.8"/></svg>',
+  keyboard: '<svg class="icon sm" viewBox="0 0 24 24"><rect x="3" y="6.2" width="18" height="11.6" rx="2.2"/><path d="M7 10.2h.01M10.4 10.2h.01M13.8 10.2h.01M17 10.2h.01M7.6 14.2h8.8"/></svg>',
+  inbox: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4 13.2l2.6-7.4h10.8L20 13.2v4.6a2 2 0 01-2 2H6a2 2 0 01-2-2z"/><path d="M4 13.2h4.2l1.1 2.2h5.4l1.1-2.2H20"/></svg>'
+};
+const ic = n => ICON[n] || '';
+
+/* ---------------- 主题（跟随系统，可手动切换） ---------------- */
+const THEME_KEY = 'bedrock-anim-lab.theme';
+const LS_KEY = 'bedrock-anim-lab.v4';
+const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入';
+function applyTheme(t, persist) {
+  const dark = t !== 'light';
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  if (persist) { try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) { /* 忽略 */ } }
+  const d = $('#icoThemeDark'), l = $('#icoThemeLight'), b = $('#btnTheme');
+  if (d) d.hidden = dark;
+  if (l) l.hidden = !dark;
+  if (b) b.setAttribute('aria-label', dark ? '切换到浅色模式' : '切换到深色模式');
+}
+function initTheme() {
+  let t = null;
+  try { t = localStorage.getItem(THEME_KEY); } catch (e) { /* 忽略 */ }
+  if (t !== 'light' && t !== 'dark') t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  applyTheme(t, false);
+  const b = $('#btnTheme');
+  if (b) b.addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark', true);
+  });
+}
+
+/* ---------------- 按钮 loading 态 ---------------- */
+function setBusy(on) {
+  const b = $('#btnImport');
+  if (!b) return;
+  if (on) {
+    if (!b.dataset.idle) b.dataset.idle = b.innerHTML;
+    b.classList.add('loading');
+    b.innerHTML = ic('loop') + '解析中';
+  } else if (b.dataset.idle) {
+    b.classList.remove('loading');
+    b.innerHTML = b.dataset.idle;
+    delete b.dataset.idle;
+  }
+}
+
+function toast(msg, kind) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  const icon = kind === 'good' ? 'ok' : kind === 'bad' ? 'warn' : 'info';
+  el.innerHTML = ic(icon) + '<span>' + msg + '</span>';
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 2300);
+  setTimeout(() => el.remove(), 2700);
+}
+/* 数值格式化：旋转 1 位、其它 2 位，去掉尾随 0，NaN → — */
+function fmtV(v, base) {
+  if (v == null || !isFinite(v)) return '—';
+  const d = base === 'rotation' ? 1 : 2;
+  let s = v.toFixed(d);
+  if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  if (s === '-0') s = '0';
+  return s;
+}
+
+/* ---------------- Molang（迷你求值器） ---------------- */
+const DEG = Math.PI / 180;
+/* 未知标识符：按 0 计算并记录，供 UI 提示「这个符号没求出来」 */
+function miss(ctx, nm) {
+  if (ctx && ctx.miss && ctx.miss.length < 8) ctx.miss.push(nm);
+}
+const Molang = (() => {
+  const IDENT = /[A-Za-z_][A-Za-z0-9_.]*/y;
+  const NUM = /(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/y;
+
+  function lex(src) {
+    const out = [];
+    let i = 0;
+    while (i < src.length) {
+      const c = src[i];
+      if (/\s/.test(c)) { i++; continue; }
+      if (/[0-9.]/.test(c) && (c !== '.' || /[0-9]/.test(src[i + 1] || ''))) {
+        NUM.lastIndex = i;
+        const m = NUM.exec(src);
+        out.push({ t: 'num', v: parseFloat(m[0]) }); i += m[0].length; continue;
+      }
+      if (/[A-Za-z_]/.test(c)) {
+        IDENT.lastIndex = i;
+        const m = IDENT.exec(src);
+        out.push({ t: 'id', v: m[0] }); i += m[0].length; continue;
+      }
+      const three = src.substr(i, 2);
+      if (three === '==' || three === '!=' || three === '<=' || three === '>=' || three === '&&' || three === '||') {
+        out.push({ t: 'op', v: three }); i += 2; continue;
+      }
+      if ('+-*/%()<>!?:,'.indexOf(c) >= 0) { out.push({ t: 'op', v: c }); i++; continue; }
+      out.push({ t: 'bad', v: c }); i++;
+    }
+    return out;
+  }
+
+  const BIN = {
+    '||': 1, '&&': 2, '==': 3, '!=': 3, '<': 4, '>': 4, '<=': 4, '>=': 4,
+    '+': 5, '-': 5, '*': 6, '/': 6, '%': 6
+  };
+
+  function parse(tk) {
+    let p = 0;
+    const peek = () => tk[p] || { t: 'eof' };
+    const eat = (v) => { const t = tk[p]; if (t && (t.v === v || t.t === v)) { p++; return t; } return null; };
+
+    function primary() {
+      const t = peek();
+      if (!t || t.t === 'eof') return { k: 'num', v: NaN };
+      if (t.t === 'num') { p++; return { k: 'num', v: t.v }; }
+      if (t.t === 'id') {
+        p++;
+        if (peek().t === 'op' && peek().v === '(') {
+          p++;
+          const args = [];
+          if (!(peek().v === ')')) {
+            for (;;) {
+              args.push(expr(0));
+              if (eat(',')) continue;
+              break;
+            }
+          }
+          eat(')');
+          return { k: 'call', name: t.v, args };
+        }
+        return { k: 'id', name: t.v };
+      }
+      if (t.t === 'op' && t.v === '(') {
+        p++;
+        const e = expr(0);
+        eat(')');
+        return e;
+      }
+      if (t.t === 'op' && (t.v === '-' || t.v === '+' || t.v === '!')) {
+        p++;
+        const e = unary();
+        return t.v === '-' ? { k: 'neg', a: e } : t.v === '!' ? { k: 'not', a: e } : e;
+      }
+      p++;
+      return { k: 'num', v: NaN };
+    }
+    function unary() { return primary(); }
+    function expr(minp) {
+      let left = unary();
+      for (;;) {
+        const t = peek();
+        if (!(t.t === 'op' && BIN[t.v])) break;
+        const prec = BIN[t.v];
+        if (prec < minp) break;
+        p++;
+        const right = expr(prec + 1);
+        left = { k: 'bin', op: t.v, a: left, b: right };
+      }
+      return left;
+    }
+    const root = expr(0);
+    return () => root;
+  }
+
+  const DEG = Math.PI / 180;
+  const FN = {
+    'math.abs': a => Math.abs(a[0]),
+    'math.ceil': a => Math.ceil(a[0]),
+    'math.floor': a => Math.floor(a[0]),
+    'math.round': a => Math.round(a[0]),
+    'math.trunc': a => Math.trunc(a[0]),
+    'math.frac': a => a[0] - Math.trunc(a[0]),
+    'math.mod': a => ((a[0] % a[1]) + a[1]) % a[1],
+    'math.pow': a => Math.pow(a[0], a[1]),
+    'math.sqrt': a => Math.sqrt(a[0]),
+    'math.exp': a => Math.exp(a[0]),
+    'math.ln': a => Math.log(a[0]),
+    'math.sin': a => Math.sin(a[0] * DEG),
+    'math.cos': a => Math.cos(a[0] * DEG),
+    'math.tan': a => Math.tan(a[0] * DEG),
+    'math.asin': a => Math.asin(a[0]) / DEG,
+    'math.acos': a => Math.acos(a[0]) / DEG,
+    'math.atan': a => Math.atan(a[0]) / DEG,
+    'math.atan2': a => Math.atan2(a[0], a[1]) / DEG,
+    'math.min': a => Math.min.apply(null, a),
+    'math.max': a => Math.max.apply(null, a),
+    'math.clamp': a => clamp(a[0], a[1], a[2]),
+    'math.lerp': a => lerp(a[0], a[1], a[2]),
+    'math.lerp_rotate': a => lerp(a[0], a[1], a[2]),
+    'math.random': a => a.length >= 2 ? lerp(a[0], a[1], Math.random()) : Math.random(),
+    'math.hermite_blend': a => { const t = a[0]; return t * t * (3 - 2 * t); },
+    'math.sign': a => Math.sign(a[0]),
+    'math.die_roll': a => a[0] || 1,
+    'query.is_moving': () => 1,
+    'query.is_on_ground': () => 1
+  };
+  const QUERY = {
+    'query.anim_time': c => c.anim_time,
+    'query.life_time': c => c.life_time,
+    'query.delta_time': c => c.delta_time,
+    'query.frame_alpha': c => c.frame_alpha,
+    'query.modified_distance_moved': c => c.modified_distance_moved,
+    'query.ground_speed': c => 4.317,
+    'query.time_of_day': c => 6000,
+    'query.cardinal_facing': c => 0,
+    'query.body_y_rotation': c => (c.life_time * 40) % 360,
+    'query.sleep_rotation': c => 0,
+    'query.vertical_speed': c => 0,
+    'query.health': c => 20,
+    'query.max_health': c => 20
+  };
+
+  const cache = new Map();
+  function compile(src) {
+    let f = cache.get(src);
+    if (!f) { try { f = parse(lex(src)); } catch (e) { f = () => ({ k: 'num', v: NaN }); } cache.set(src, f); }
+    return f;
+  }
+
+  function evalNode(n, ctx) {
+    switch (n.k) {
+      case 'num': return n.v;
+      case 'neg': return -evalNode(n.a, ctx);
+      case 'not': return evalNode(n.a, ctx) ? 0 : 1;
+      case 'bin': {
+        const a = evalNode(n.a, ctx);
+        if (n.op === '&&') return a ? (evalNode(n.b, ctx) ? 1 : 0) : 0;
+        if (n.op === '||') return a ? 1 : (evalNode(n.b, ctx) ? 1 : 0);
+        const b = evalNode(n.b, ctx);
+        switch (n.op) {
+          case '+': return a + b; case '-': return a - b; case '*': return a * b;
+          case '/': return a / b; case '%': return a % b;
+          case '<': return a < b ? 1 : 0; case '>': return a > b ? 1 : 0;
+          case '<=': return a <= b ? 1 : 0; case '>=': return a >= b ? 1 : 0;
+          case '==': return a === b ? 1 : 0; case '!=': return a !== b ? 1 : 0;
+        }
+        return NaN;
+      }
+      case 'id': {
+        const nm = n.name;
+        if (nm === 'this') return ctx.thisV === undefined ? 0 : ctx.thisV;
+        if (QUERY[nm]) return QUERY[nm](ctx);
+        if (nm === 'math.pi') return Math.PI;
+        if (nm.indexOf('variable.') === 0) { const k = nm.slice(9); return k in ctx.vars ? ctx.vars[k] : (miss(ctx, nm), 0); }
+        if (nm.indexOf('temp.') === 0) { const k = nm.slice(5); return k in ctx.vars ? ctx.vars[k] : 0; }
+        if (nm.indexOf('context.') === 0) { const k = nm.slice(8); return k in ctx.vars ? ctx.vars[k] : 0; }
+        miss(ctx, nm);
+        return 0;
+      }
+      case 'call': {
+        const f = FN[n.name];
+        if (!f) return NaN;
+        const args = n.args.map(a => evalNode(a, ctx));
+        try { return f(args); } catch (e) { return NaN; }
+      }
+    }
+    return NaN;
+  }
+  function evalMolang(src, ctx) {
+    if (typeof src === 'number') return src;
+    const v = evalNode(compile(String(src))(), ctx);
+    return isFinite(v) ? v : NaN;
+  }
+  return { evalMolang, compile };
+})();
+const evalMolang = Molang.evalMolang;
+
+/* ---------------- 通道与关键帧 ---------------- */
+const BASES = {
+  position: { base: 0, label: 'position', unit: 'blocks' },
+  rotation: { base: 0, label: 'rotation', unit: '°' },
+  scale: { base: 1, label: 'scale', unit: '×' }
+};
+const BASE_ORDER = ['position', 'rotation', 'scale'];
+const CHAN_RE = /^(position|rotation|scale)(?:[_-](.+))?$/;
+
+const isArr3 = v => Array.isArray(v) && v.length >= 1;
+const toVec3 = (v) => Array.isArray(v) ? [v[0], v[1] != null ? v[1] : v[0], v[2] != null ? v[2] : v[0]] : [v, v, v];
+
+function parseKeys(raw) {
+  if (raw == null) return null;
+  const scan = v => {
+    if (typeof v === 'string') return /\bthis\b/.test(v);
+    return false;
+  };
+  if (Array.isArray(raw) || typeof raw === 'number' || typeof raw === 'string') {
+    const vec = toVec3(raw);
+    return { kind: 'static', value: vec, thisRef: vec.some(scan) };
+  }
+  if (typeof raw !== 'object') return null;
+  const keys = [];
+  let jump = false, catmull = false, molang = false, thisRef = false;
+  Object.keys(raw).forEach(k => {
+    const t = parseFloat(k);
+    if (!isFinite(t)) return;
+    const rv = raw[k];
+    let pre, post, mode = 'linear';
+    if (rv && typeof rv === 'object' && !Array.isArray(rv)) {
+      mode = rv.lerp_mode || 'linear';
+      const a = rv.pre != null ? rv.pre : rv.post;
+      const b = rv.post != null ? rv.post : rv.pre;
+      pre = toVec3(a); post = toVec3(b);
+      if (rv.pre != null && rv.post != null && JSON.stringify(pre) !== JSON.stringify(post)) jump = true;
+    } else {
+      pre = post = toVec3(rv);
+    }
+    if (mode === 'catmullrom') catmull = true;
+    for (const v of pre.concat(post)) {
+      if (typeof v === 'string') { molang = true; if (scan(v)) thisRef = true; }
+    }
+    keys.push({ t, pre, post, mode });
+  });
+  keys.sort((a, b) => a.t - b.t);
+  return { kind: 'keyframed', keys, jump, catmull, molang, thisRef };
+}
+
+function hermite(p0, p1, p2, p3, u) {
+  const u2 = u * u, u3 = u2 * u;
+  return 0.5 * ((2 * p1) + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
+}
+
+function makeChannel(bone, base, raw, rawKey, legacyKey) {
+  const pk = parseKeys(raw);
+  if (!pk) return null;
+  const ch = {
+    bone, base, rawKey: rawKey || base, legacyKey: !!legacyKey,
+    kind: pk.kind, value: pk.value || null, keys: pk.keys || null,
+    src: raw,
+    flags: {
+      molang: pk.kind === 'static'
+        ? pk.value.some(v => typeof v === 'string')
+        : !!pk.molang,
+      jump: !!pk.jump, catmull: !!pk.catmull,
+      thisRef: !!pk.thisRef
+    }
+  };
+  ch.times = pk.kind === 'keyframed' ? pk.keys.map(k => k.t) : [];
+  return ch;
+}
+
+/* 采样一个通道，返回 {v:[x,y,z], unresolved, miss[]}
+   thisArr = 该通道在「这张卡之前」的累计值，供表达式里的 this / -this 读取 */
+function sampleChannel(ch, localT, ctx, thisArr) {
+  const missList = [];
+  const axisCtx = (i) => ({
+    anim_time: ctx.anim_time, life_time: ctx.life_time, delta_time: ctx.delta_time,
+    frame_alpha: ctx.frame_alpha, modified_distance_moved: ctx.modified_distance_moved,
+    vars: ctx.vars, thisV: thisArr ? thisArr[i] : 0, miss: missList
+  });
+  const ev = (val, out, i) => {
+    if (typeof val === 'number') { out[i] = val; return 0; }
+    if (typeof val === 'string') {
+      const n = evalMolang(val, axisCtx(i));
+      out[i] = isFinite(n) ? n : 0;
+      return isFinite(n) ? 0 : 1;
+    }
+    const f = Number(val);
+    out[i] = isFinite(f) ? f : 0;
+    return isFinite(f) ? 0 : 1;
+  };
+  const out = [0, 0, 0];
+  let bad = 0;
+  if (ch.kind === 'static') {
+    for (let i = 0; i < 3; i++) bad += ev(ch.value[i], out, i);
+    return { v: out, unresolved: bad, miss: missList };
+  }
+  const ks = ch.keys;
+  if (!ks.length) return { v: out, unresolved: 3, miss: missList };
+  let start, end, u = 0, mode = 'linear';
+  if (localT <= ks[0].t) { start = end = ks[0].pre; }
+  else if (localT >= ks[ks.length - 1].t) { start = end = ks[ks.length - 1].post; }
+  else {
+    let i = 0;
+    while (i < ks.length - 2 && ks[i + 1].t <= localT) i++;
+    const a = ks[i], b = ks[i + 1];
+    start = a.post; end = b.pre; mode = b.mode;
+    u = (localT - a.t) / Math.max(1e-6, b.t - a.t);
+  }
+  for (let i2 = 0; i2 < 3; i2++) {
+    let val;
+    if (mode === 'catmullrom' && start !== end) {
+      const idx = ks.findIndex(k => k.t >= localT);
+      const p0 = (ks[idx - 2] || ks[idx - 1] || ks[idx]).post;
+      const p1 = start, p2 = end;
+      const p3 = (ks[idx + 1] || ks[idx] || ks[ks.length - 1]).pre;
+      const c = axisCtx(i2);
+      val = hermite(num(p0[i2], c), num(p1[i2], c), num(p2[i2], c), num(p3[i2], c), u);
+      out[i2] = isFinite(val) ? val : 0;
+    } else if (start === end) {
+      bad += ev(start[i2], out, i2);
+    } else {
+      const c = axisCtx(i2);
+      const a = num(start[i2], c), b = num(end[i2], c);
+      out[i2] = isFinite(a) && isFinite(b) ? lerp(a, b, u) : (isFinite(a) ? a : 0);
+      if (!isFinite(a) || !isFinite(b)) bad++;
+    }
+  }
+  if (missList.length) bad = Math.max(bad, 1);
+  return { v: out, unresolved: bad, miss: missList.slice(0, 4) };
+}
+function num(v, ctx) {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') return evalMolang(v, ctx);
+  const f = Number(v);
+  return isFinite(f) ? f : NaN;
+}
+const containsMolang = v => typeof v === 'string' || (Array.isArray(v) && v.some(x => typeof x === 'string'));
+
+/* ---------------- 动画条目 ---------------- */
+const STACK_COLORS = ['#5fd48b', '#38bdf8', '#c084fc', '#ffb04d', '#f472b6', '#a3e635', '#fbbf24', '#22d3ee'];
+const SPECIAL_KEYS = ['loop', 'animation_length', 'start_delay', 'blend_weight', 'override_previous_animation',
+  'sound_effects', 'particle_effects', 'timeline', 'anim_time_update', 'bones_that_should_be_visible'];
+
+function parseEvents(def) {
+  const out = [];
+  ['sound_effects', 'particle_effects', 'timeline'].forEach(kindKey => {
+    const block = def[kindKey];
+    if (!block || typeof block !== 'object') return;
+    const kind = kindKey === 'sound_effects' ? 'sound' : kindKey === 'particle_effects' ? 'particle' : 'timeline';
+    Object.keys(block).forEach(k => {
+      const t = parseFloat(k);
+      if (!isFinite(t)) return;
+      let nm = block[k];
+      if (Array.isArray(nm)) nm = nm[0];
+      if (nm && typeof nm === 'object') nm = nm.effect || nm.sound || nm.name || JSON.stringify(nm);
+      out.push({ t, kind, name: String(nm) });
+    });
+  });
+  return out.sort((a, b) => a.t - b.t);
+}
+
+function makeItem(animKey, def, fileName, origin) {
+  const item = {
+    id: uid('it'), animKey: animKey, def: def, fileName: fileName || '', origin: origin || 'import',
+    channels: [], bones: [], boneSet: new Set(), events: [], warnings: [],
+    loop: def.loop === true ? true : def.loop === 'hold_on_last_frame' ? 'hold' : def.loop === false ? false : false,
+    length: typeof def.animation_length === 'number' ? def.animation_length : null,
+    startDelay: typeof def.start_delay === 'number' ? def.start_delay : 0,
+    blendWeight: typeof def.blend_weight === 'number' ? def.blend_weight : 1,
+    flags: {
+      override: def.override_previous_animation === true, hasThis: false,
+      hasMolang: false, hasJump: false, hasCatmull: false, hasEvents: false
+    },
+    enabled: true, weight: 1, color: STACK_COLORS[0], collapsed: false
+  };
+  let maxT = 0;
+  const bonesObj = def.bones && typeof def.bones === 'object' ? def.bones : {};
+  Object.keys(bonesObj).forEach(boneName => {
+    const block = bonesObj[boneName];
+    if (!block || typeof block !== 'object') return;
+    Object.keys(block).forEach(rawKey => {
+      const m = CHAN_RE.exec(rawKey);
+      if (!m) {
+        if (rawKey !== 'relative_to') item.warnings.push('忽略未知通道键 ' + rawKey);
+        return;
+      }
+      const base = m[1], legacy = m[2] || null;
+      const ch = makeChannel(boneName, base, block[rawKey], rawKey, legacy);
+      if (!ch) return;
+      item.channels.push(ch);
+      if (!item.boneSet.has(boneName)) { item.boneSet.add(boneName); item.bones.push(boneName); }
+      if (ch.flags.molang) item.flags.hasMolang = true;
+      if (ch.flags.jump) item.flags.hasJump = true;
+      if (ch.flags.catmull) item.flags.hasCatmull = true;
+      if (ch.flags.thisRef) item.flags.hasThis = true;
+      if (ch.times.length) maxT = Math.max(maxT, ch.times[ch.times.length - 1]);
+    });
+  });
+  item.events = parseEvents(def);
+  if (item.events.length) item.flags.hasEvents = true;
+  if (item.length == null) item.length = maxT || 1;
+  if (!item.channels.length) item.warnings.push('这个动画没有任何可识别的骨骼通道');
+  return item;
+}
+
+/* 解析文件 → 若干 item（bedrock-samples 一个文件通常装多个动画） */
+function parseAnimFile(json, fileName, origin) {
+  const out = [];
+  let map = null, wrapper = null;
+  if (json && typeof json === 'object') {
+    if (json.animations && typeof json.animations === 'object') { map = json.animations; wrapper = json; }
+    else if (json.bones) { map = { ['animation.unnamed']: json }; }
+  }
+  if (!map) throw new Error('没有找到 animations 节点');
+  Object.keys(map).forEach(key => {
+    const def = map[key];
+    if (!def || typeof def !== 'object') return;
+    if (key === 'loop' || key === 'animation_length') return;
+    const it = makeItem(key, def, fileName, origin);
+    if (it.channels.length) out.push(it);
+  });
+  if (!out.length) throw new Error('animations 里没有可用的骨骼通道');
+  return out;
+}
+
+/* ---------------- 示例库（逐字取自 bedrock-samples v1.26.50.4 的 resource_pack/animations） ---------------- */
+const SAMPLE_GROUPS = [
+  {
+    id: 'core',
+    title: 'bedrock-samples 原生',
+    note: 'bedrock-samples v1.26.50.4 原文件，逐字未改。',
+    keys: [
+      'animation.humanoid.move', 'animation.humanoid.bob', 'animation.humanoid.sneaking',
+      'animation.armor_stand.athena_pose', 'animation.player.sleeping'
+    ]
+  },
+  {
+    id: 'fmbe',
+    title: 'FMBE 基础',
+    note: 'wiki.bedrock.dev/commands/display-entities 里用到的原版动画。',
+    keys: [
+      'animation.player.sleeping', 'animation.creeper.swelling', 'animation.ender_dragon.neck_head_movement',
+      'animation.warden.move', 'animation.player.attack.rotations',
+      'animation.parrot.moving', 'animation.parrot.dance', 'animation.minecart.move'
+    ]
+  },
+  {
+    id: 'adv',
+    title: 'FMBE 进阶 · 3D 方块',
+    note: 'Advanced FMBE（3D 方块）用到的原版动画 —— 与上面是同一批文件，没有额外的 JSON。',
+    keys: [
+      'animation.player.sleeping', 'animation.creeper.swelling', 'animation.ender_dragon.neck_head_movement',
+      'animation.warden.move', 'animation.player.attack.rotations'
+    ]
+  }
+];
+
+const SAMPLES = [
+  { key: "animation.humanoid.move", group: "core", label: "humanoid.move", note: "", file: "humanoid.animation.json", on: true,
+    def: {"loop":true,"animation_length":1,"bones":{"leftarm":{"rotation":["variable.tcos0",0,0]},"leftleg":{"rotation":["variable.tcos0 * -1.4",-0.1,-0.1]},"rightarm":{"rotation":["-variable.tcos0",0,0]},"rightleg":{"rotation":["variable.tcos0 * 1.4",0.1,0.1]}}} },
+  { key: "animation.humanoid.bob", group: "core", label: "humanoid.bob", note: "", file: "humanoid.animation.json", on: true,
+    def: {"loop":true,"animation_length":0.5,"bones":{"leftarm":{"rotation":[0,0,"((math.cos(query.life_time * 103.2) * 2.865) + 2.865) *-1.0"]},"rightarm":{"rotation":[0,0,"(math.cos(query.life_time * 103.2) * 2.865) + 2.865"]}}} },
+  { key: "animation.humanoid.sneaking", group: "core", label: "humanoid.sneaking", note: "", file: "humanoid.animation.json", on: true,
+    def: {"loop":true,"bones":{"body":{"rotation":["0.5 - this",0,0]},"head":{"position":[0,1,0]},"leftarm":{"rotation":[72,0,0]},"leftleg":{"position":[0,-3.1,3.9]},"rightarm":{"rotation":[72,0,0]},"rightleg":{"position":[0,-2.9,4.1]}}} },
+  { key: "animation.armor_stand.athena_pose", group: "core", label: "armor_stand.athena_pose", note: "", file: "armor_stand.animation.json", on: true,
+    def: {"loop":true,"bones":{"body":{"rotation":["-this","-this","-this + 2"]},"head":{"rotation":["-this - 5","-this","-this"]},"leftarm":{"rotation":["-this + 10","-this","-this - 5"]},"leftleg":{"rotation":["-this - 3","-this - 3","-this - 3"]},"rightarm":{"rotation":["-this - 60","-this + 20","-this - 10"]},"rightitem":{"rotation":["-this","-this","-this"]},"rightleg":{"rotation":["-this - 3","-this - 3","-this - 3"]}}} },
+  { key: "animation.player.sleeping", group: "core", label: "player.sleeping", note: "", file: "player.animation.json", on: true,
+    def: {"loop":true,"override_previous_animation":true,"bones":{"head":{"rotation":["30.0 - this","-this","-this"]},"root":{"position":["24.0 * math.cos(query.body_y_rotation) * math.cos(query.sleep_rotation) - 24.0 * math.sin(query.body_y_rotation) * math.sin(query.sleep_rotation)",0,"24.0 * math.cos(query.body_y_rotation) * math.sin(query.sleep_rotation) + 24.0 * math.sin(query.body_y_rotation) * math.cos(query.sleep_rotation)"],"rotation":[-90,"270.0 - query.sleep_rotation - query.body_y_rotation",0]}}} },
+  { key: "animation.creeper.swelling", group: "fmbe", label: "creeper.swelling", note: "", file: "creeper.animation.json", on: false,
+    def: {"loop":true,"bones":{"body":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"head":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"leg0":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"leg1":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"leg2":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"leg3":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]}}} },
+  { key: "animation.ender_dragon.neck_head_movement", group: "fmbe", label: "dragon.neck_head_movement", note: "", file: "ender_dragon.animation.json", on: false,
+    def: {"loop":true,"bones":{"neck1":{"rotation":["variable.neck_1_rotation_x - this","variable.neck_1_rotation_y - this","variable.neck_1_rotation_z - this"],"position":["variable.neck_1_position_x - this","variable.neck_1_position_y - this","variable.neck_1_position_z - this"]},"neck2":{"rotation":["variable.neck_2_rotation_x - this","variable.neck_2_rotation_y - this","variable.neck_2_rotation_z - this"],"position":["variable.neck_2_position_x - this","variable.neck_2_position_y - this","variable.neck_2_position_z - this"]},"neck3":{"rotation":["variable.neck_3_rotation_x - this","variable.neck_3_rotation_y - this","variable.neck_3_rotation_z - this"],"position":["variable.neck_3_position_x - this","variable.neck_3_position_y - this","variable.neck_3_position_z - this"]},"neck4":{"rotation":["variable.neck_4_rotation_x - this","variable.neck_4_rotation_y - this","variable.neck_4_rotation_z - this"],"position":["variable.neck_4_position_x - this","variable.neck_4_position_y - this","variable.neck_4_position_z - this"]},"neck5":{"rotation":["variable.neck_5_rotation_x - this","variable.neck_5_rotation_y - this","variable.neck_5_rotation_z - this"],"position":["variable.neck_5_position_x - this","variable.neck_5_position_y - this","variable.neck_5_position_z - this"]},"head":{"rotation":["variable.head_rotation_x - this","variable.head_rotation_y - this","variable.head_rotation_z - this"],"position":["variable.head_position_x - this","variable.head_position_y - this","variable.head_position_z - this"]}}} },
+  { key: "animation.warden.move", group: "fmbe", label: "warden.move", note: "", file: "warden.animation.json", on: false,
+    def: {"loop":true,"bones":{"head":{"rotation":["variable.head_x_rot",0,"variable.head_z_rot"]},"body":{"rotation":["variable.body_x_rot",0,"variable.body_z_rot"]},"left_leg":{"rotation":["variable.left_leg_x_rot",0,0]},"right_leg":{"rotation":["variable.right_leg_x_rot",0,0]},"left_arm":{"rotation":["variable.left_arm_x_rot",0,0]},"right_arm":{"rotation":["variable.right_arm_x_rot",0,0]}}} },
+  { key: "animation.player.attack.rotations", group: "fmbe", label: "player.attack.rotations", note: "", file: "player.animation.json", on: false,
+    def: {"loop":true,"bones":{"body":{"rotation":[0,"variable.attack_body_rot_y",0]},"leftarm":{"rotation":["-(math.sin((1 - math.pow((1 - variable.attack_time), 4)) * 180) * 1.2 + math.sin(variable.attack_time * 180)) * 10.0",0,0]},"rightarm":{"rotation":["-(math.sin((1 - math.pow((1 - variable.attack_time), 4)) * 180) * 1.2 + math.sin(variable.attack_time * 180)) * 30.0","-(math.sin((1 - math.pow((1 - variable.attack_time), 4)) * 180) ? (-90.0 * math.sin((1 - math.pow((1 - variable.attack_time), 4)) * 180)) + 30.0 : 0.0)",0]}}} },
+  { key: "animation.parrot.moving", group: "fmbe", label: "parrot.moving", note: "", file: "parrot.animation.json", on: false,
+    def: {"loop":true,"bones":{"body":{"position":[0,"variable.wing_flap * 0.3",0]},"tail":{"rotation":["60.0 + math.cos(query.anim_time * 38.17) * 17.0 - this",0,0]},"wing0":{"rotation":[0,0,"-5.0 - variable.wing_flap * 57.3"]},"wing1":{"rotation":[0,0,"5.0 + variable.wing_flap * 57.3"]}}} },
+  { key: "animation.parrot.dance", group: "fmbe", label: "parrot.dance", note: "", file: "parrot.animation.json", on: false,
+    def: {"loop":true,"bones":{"body":{"position":["variable.dance.x-this","variable.dance.y",0]},"head":{"rotation":["-this","-this","variable.dance.y*23.0 - this"]},"leg0":{"position":["-variable.dance.x","-variable.dance.y",0],"rotation":[0,0,"-20.0 - this"]},"leg1":{"position":["-variable.dance.x","-variable.dance.y",0],"rotation":[0,0,"20.0 - this"]},"tail":{"rotation":["60.0 - this",0,0]},"wing0":{"rotation":[0,0,"-5.0 - variable.wing_flap"]},"wing1":{"rotation":[0,0,"5.0 + variable.wing_flap"]}}} },
+  { key: "animation.minecart.move", group: "fmbe", label: "minecart.move", note: "", file: "minecart.animation.json", on: false,
+    def: {"loop":true,"bones":{"bottom":{"position":["variable.rail_offset.x / query.model_scale","variable.rail_offset.y / query.model_scale","variable.rail_offset.z / query.model_scale"],"rotation":["variable.hurt > 0 ? -Math.sin(variable.hurt * 360 / (Math.pi * 2)) * variable.hurt * (((20 * 2 - query.structural_integrity) - query.frame_alpha) < 0 ? 0: (20 * 2 - query.structural_integrity) - query.frame_alpha) / 10 * query.hurt_direction : 0",0,"-variable.rail_rotation.z"]}}} }
+];
+
+/* ============================================================
+   P3 · 状态 / 矩阵渲染 / 拖拽
+   ============================================================ */
+const MOLANG_VARS = {};
+const state = {
+  stack: [], sel: null
+};
+
+function baseCtx(animTime, lifeTime) {
+  const dist = lifeTime * 4.317;
+  const atk = (lifeTime * 1.2) % 1;
+  // 真实资源包里这些 variable 由 controller 写；这里用能看懂的近似值撑起来
+  MOLANG_VARS.tcos0 = Math.cos(dist * 38.17) * 40;
+  MOLANG_VARS.attack_time = atk < 0.5 ? atk * 2 : (1 - atk) * 2;
+  MOLANG_VARS.charge_amount = 0;
+  MOLANG_VARS.is_brandishing_spear = 0;
+  MOLANG_VARS.is_holding_spyglass = 0;
+  MOLANG_VARS.is_sneaking = 0;
+  return {
+    anim_time: animTime, life_time: lifeTime, delta_time: 1 / 60, frame_alpha: 0.5,
+    modified_distance_moved: dist, vars: MOLANG_VARS
+  };
+}
+
+/* 循环 / 保持 / 单次 → 动画内本地时间；还没到 start_delay 返回 null */
+function animLocalTime(item, t) {
+  const lt = t - (item.startDelay || 0);
+  if (lt < 0) return null;
+  const len = item.length > 0 ? item.length : 1;
+  if (item.loop === true) return lt % len;
+  if (item.loop === 'hold') return Math.min(lt, len);
+  return lt;
+}
+
+function applyWeight(base, v, w) {
+  return base === 'scale' ? 1 + (v - 1) * w : v * w;
+}
+
+/* ---------- 矩阵：行 = 动画，列 = 骨骼 / 通道 ---------- */
+const CH_ORDER = ['position', 'rotation', 'scale'];
+const BONE_RANK = ['root', 'body', 'head', 'hat', 'cape', 'back',
+  'leftarm', 'rightarm', 'leftleg', 'rightleg', 'leftitem', 'rightitem',
+  'rightitem', 'leftitem'];
+
+function boneRank(bone) {
+  const i = BONE_RANK.indexOf(String(bone).toLowerCase());
+  return i < 0 ? 99 : i;
+}
+
+function buildMatrix() {
+  const rows = state.stack.map((item, si) => ({ item, si, ov: !!item.flags.override }));
+  const boneOrder = [];
+  const perBone = new Map();              // bone -> Set(base)
+  rows.forEach(r => r.item.channels.forEach(ch => {
+    if (!perBone.has(ch.bone)) { perBone.set(ch.bone, new Set()); boneOrder.push(ch.bone); }
+    perBone.get(ch.bone).add(ch.base);
+  }));
+  boneOrder.sort((a, b) => boneRank(a) - boneRank(b) || String(a).localeCompare(String(b)));
+  const groups = boneOrder.map(bone => {
+    const bases = CH_ORDER.filter(b => perBone.get(bone).has(b));
+    return { bone, bases };
+  });
+  const cols = [];
+  groups.forEach(g => g.bases.forEach(base => cols.push({ bone: g.bone, base })));
+  return { rows, groups, cols, bounds: rows.filter(r => r.ov) };
+}
+
+/* 这一格是否被下面某个 override 行清掉 */
+function deadAt(bone, si, bounds) {
+  return bounds.some(b => b.si > si && b.item.bones.indexOf(bone) >= 0);
+}
+
+function fmtNum(n, base) {
+  if (!isFinite(n)) return '?';
+  const digits = base === 'rotation' ? 2 : 3;
+  let s = n.toFixed(digits);
+  if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  if (s === '-0') s = '0';
+  return s;
+}
+
+function litHTML(v, base) {
+  if (typeof v === 'string') {
+    const th = /\bthis\b/.test(v);
+    return '<code class="expr' + (th ? ' th' : '') + '" title="' + escapeHtml(v) + '">' + escapeHtml(v) + '</code>';
+  }
+  const n = Number(v);
+  return '<span class="num">' + (isFinite(n) ? fmtNum(n, base) : '?') + '</span>';
+}
+
+function chanHTML(ch, base) {
+  if (ch.kind === 'static') {
+    return '<div class="vec">' + ['x', 'y', 'z'].map((ax, i) =>
+      '<span><i>' + ax + '</i>' + litHTML(ch.value[i], base) + '</span>').join('') + '</div>';
+  }
+  const ks = ch.keys;
+  const head = ks.length > 5 ? ks.slice(0, 2) : ks;
+  const tail = ks.length > 5 ? ks[ks.length - 1] : null;
+  const line = k => {
+    const jump = JSON.stringify(k.pre) !== JSON.stringify(k.post);
+    return '<span' + (jump ? ' class="jump"' : '') + ' title="' + k.t.toFixed(3) + 's' + (jump ? ' · pre/post 跳变' : '') + '">'
+      + '<b>' + fmtNum(k.t, 'time') + '</b>'
+      + k.post.map(v => litHTML(v, base)).join('<u>,</u>')
+      + '</span>';
+  };
+  let html = '<div class="keys">' + head.map(line).join('');
+  if (tail) html += '<span class="more">… 共 ' + ks.length + ' 帧</span>' + line(tail);
+  return html + '</div>';
+}
+
+function badgesFor(item) {
+  const out = [];
+  if (item.flags.override) out.push('<span class="chip ov" title="override_previous_animation: true">' + ic('override') + 'override</span>');
+  const nThis = item.channels.filter(c => c.flags.thisRef).length;
+  if (nThis) out.push('<span class="chip th" title="值里引用了 this（= 上面所有行的累计），等于把该通道写成绝对值">' + ic('thisMark') + 'this ×' + nThis + '</span>');
+  const nMo = item.channels.filter(c => c.flags.molang).length;
+  if (nMo) out.push('<span class="chip mo" title="值是表达式，不是数字">' + ic('molang') + 'molang ×' + nMo + '</span>');
+  if (item.flags.hasJump) out.push('<span class="chip kf" title="pre / post 不等，这一点会跳变">' + ic('keyframe') + 'pre/post</span>');
+  if (item.flags.hasCatmull) out.push('<span class="chip kf" title="lerp_mode: catmullrom">' + ic('keyframe') + 'catmullrom</span>');
+  if (item.flags.hasEvents) out.push('<span class="chip fx" title="sound_effects / particle_effects">' + ic('fx') + 'fx ×' + item.events.length + '</span>');
+  if (item.warnings.length) out.push('<span class="chip bad" title="' + escapeHtml(item.warnings.join(' / ')) + '">' + ic('warn') + item.warnings.length + '</span>');
+  return out;
+}
+
+function rowHead(r) {
+  const it = r.item;
+  const loopIcon = it.loop === true ? ic('loop') : it.loop === 'hold' ? ic('hold') : ic('once');
+  const loopText = it.loop === true ? 'loop' : it.loop === 'hold' ? 'hold' : 'once';
+  const chips = badgesFor(it);
+  return '<th class="rowh' + (r.ov ? ' ov' : '') + (it.enabled ? '' : ' off') + '" scope="row"'
+    + ' data-id="' + it.id + '" data-si="' + r.si + '"'
+    + ' style="--c:' + (it.color || 'var(--border-2)') + '">'
+    + '<div class="rh-top">'
+    + '<span class="grip" role="button" tabindex="0"'
+    + ' aria-label="调整顺序：' + escapeHtml(shortKey(it.animKey)) + '，当前第 ' + (r.si + 1) + ' 行，按上下方向键移动"'
+    + ' title="上下拖动改顺序 · 聚焦后按 ↑ ↓ 移动">' + ic('grip') + '</span>'
+    + '<span class="idx">' + String(r.si + 1).padStart(2, '0') + '</span>'
+    + '<span class="key" data-act="toggle" title="' + escapeHtml(it.animKey) + '">'
+    + escapeHtml(shortKey(it.animKey)).replace(/\./g, '.<wbr>') + '</span>'
+    + '<span class="acts">'
+    + '<button class="icon-btn" data-act="toggle" aria-pressed="' + it.enabled + '" aria-label="' + (it.enabled ? '停用' : '启用') + ' ' + escapeHtml(shortKey(it.animKey)) + '" title="启用 / 停用">' + (it.enabled ? ic('eye') : ic('eyeOff')) + '</button>'
+    + '<button class="icon-btn danger" data-act="del" aria-label="移除 ' + escapeHtml(shortKey(it.animKey)) + '" title="移除这一行">' + ic('trash') + '</button>'
+    + '</span>'
+    + '</div>'
+    + '<div class="rh-meta">'
+    + '<span class="lchip" title="' + loopText + '">' + loopIcon + '</span>'
+    + '<span class="len">' + it.length.toFixed(2) + 's</span>'
+    + (chips.length ? '<span class="tags">' + chips.join('') + '</span>' : '')
+    + '</div>'
+    + '</th>';
+}
+
+function cellHTML(row, col, bounds) {
+  const hit = row.item.channels.find(ch => ch.bone === col.bone && ch.base === col.base);
+  const dead = deadAt(col.bone, row.si, bounds);
+  if (!hit) return '<td class="none' + (dead ? ' dead' : '') + '">·</td>';
+  return '<td class="cell' + (dead ? ' dead' : '') + '">'
+    + chanHTML(hit, col.base)
+    + '</td>';
+}
+
+function boneLabel(bone) {
+  const ghost = /custom|extra_|unknown/i.test(bone);
+  return (ghost ? '<i class="ghost-dot" aria-label="未知骨骼"></i>' : '') + escapeHtml(bone);
+}
+
+function shortKey(k) {
+  return String(k || '').replace(/^animation\./, '');
+}
+
+function render() {
+  const host = $('#matrix');
+  const empty = $('#empty');
+  const stack = state.stack;
+  empty.hidden = stack.length > 0;
+  host.hidden = stack.length === 0;
+  if (!stack.length) { host.innerHTML = ''; updateStatus(); return; }
+
+  const { rows, groups, cols, bounds } = buildMatrix();
+
+  const head1 = '<th class="corner" rowspan="2" scope="col">动画 <span class="dim">/ 骨骼 →</span></th>'
+    + groups.map(g => '<th class="boneh" scope="colgroup" colspan="' + g.bases.length + '">' + boneLabel(g.bone) + '</th>').join('');
+  const head2 = groups.map(g => g.bases.map(b =>
+    '<th class="chanh" scope="col" data-bone="' + escapeHtml(g.bone) + '">' + b + '</th>').join('')).join('');
+
+  const body = rows.map(r => {
+    let out = '';
+    if (r.ov) {
+      out += '<tr class="bandrow"><td colspan="' + (cols.length + 1) + '">'
+        + '<span class="ovline">' + ic('override')
+        + '上面的行在 <b>' + r.item.bones.join(', ') + '</b> 上的累积到这一行作废 —— 下面几行从这个新起点重新叠</span>'
+        + '</td></tr>';
+    }
+    out += '<tr class="arow' + (r.item.enabled ? '' : ' off') + '">' + rowHead(r)
+      + cols.map(c => cellHTML(r, c, bounds)).join('') + '</tr>';
+    return out;
+  }).join('');
+
+  host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>' + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + '</tbody></table>';
+  host.style.setProperty('--ncol', cols.length);
+  updateStatus();
+}
+
+function updateStatus() {
+  const n = state.stack.length;
+  const on = state.stack.filter(i => i.enabled).length;
+  $('#stAnims').textContent = n + ' 个动画' + (n && on !== n ? '（' + on + ' 启用）' : '');
+  const bones = new Set(), chans = new Set();
+  state.stack.forEach(i => {
+    if (!i.enabled) return;
+    i.channels.forEach(ch => { bones.add(ch.bone); chans.add(ch.bone + '|' + ch.base); });
+  });
+  $('#stBones').textContent = bones.size + ' 根骨骼';
+  $('#stChans').textContent = chans.size + ' 个通道';
+  document.title = 'Bedrock Animation Stack · ' + n + ' 个动画';
+}
+
+/* ---------- 行操作 ---------- */
+function toggleItem(it) {
+  it.enabled = !it.enabled;
+  render(); save();
+  toast((it.enabled ? '启用 ' : '停用 ') + '<code>' + escapeHtml(shortKey(it.animKey)) + '</code>');
+}
+
+function removeItem(it) {
+  state.stack = state.stack.filter(x => x !== it);
+  assignColors();
+  render(); save();
+  toast('已移出 <code>' + escapeHtml(shortKey(it.animKey)) + '</code>');
+}
+
+function moveRow(from, to) {
+  if (to < 0 || to >= state.stack.length || to === from) return false;
+  const it = state.stack.splice(from, 1)[0];
+  state.stack.splice(to, 0, it);
+  render(); save();
+  const grip = document.querySelector('th.rowh[data-id="' + it.id + '"] .grip');
+  if (grip) grip.focus();
+  $('#stHint').textContent = '第 ' + (to + 1) + ' 行：' + shortKey(it.animKey);
+  return true;
+}
+
+function initMatrix() {
+  const host = $('#matrix');
+  host.addEventListener('click', e => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const th = btn.closest('th.rowh');
+    if (!th) return;
+    const item = state.stack.find(i => i.id === th.dataset.id);
+    if (!item) return;
+    if (btn.dataset.act === 'toggle') toggleItem(item);
+    else if (btn.dataset.act === 'del') removeItem(item);
+  });
+  /* 键盘等价操作：聚焦行首抓手后 ↑ ↓ 换序，Home / End 到首末行 */
+  host.addEventListener('keydown', e => {
+    const grip = e.target.closest && e.target.closest('.grip');
+    if (!grip) return;
+    const th = grip.closest('th.rowh');
+    if (!th) return;
+    const i = state.stack.findIndex(x => x.id === th.dataset.id);
+    if (i < 0) return;
+    let to = i;
+    if (e.key === 'ArrowUp') to = i - 1;
+    else if (e.key === 'ArrowDown') to = i + 1;
+    else if (e.key === 'Home') to = 0;
+    else if (e.key === 'End') to = state.stack.length - 1;
+    else return;
+    if (moveRow(i, to)) e.preventDefault();
+  });
+}
+
+/* ---------- 拖拽换序（纵向拖行） ---------- */
+function initDrag() {
+  const host = $('#matrix');
+  let drag = null;
+
+  const cleanup = () => {
+    if (!drag) return;
+    drag.line.remove(); drag.tag.remove();
+    document.body.classList.remove('dragging');
+    window.removeEventListener('pointermove', onMove);
+    drag = null;
+  };
+
+  const onMove = e => {
+    if (!drag) return;
+    drag.tag.style.left = e.clientX + 'px';
+    drag.tag.style.top = e.clientY + 'px';
+    let target = drag.rects.length;
+    for (let i = 0; i < drag.rects.length; i++) {
+      const r = drag.rects[i];
+      if (e.clientY < r.top + r.height / 2) { target = i; break; }
+    }
+    if (target !== drag.target) {
+      drag.target = target;
+      const n = drag.rects.length;
+      const y = target >= n ? drag.rects[n - 1].bottom : drag.rects[target].top;
+      drag.line.style.top = Math.round(y - 1) + 'px';
+      drag.line.style.left = Math.round(drag.rects[0].left) + 'px';
+      drag.line.style.width = Math.round(drag.rects[0].width) + 'px';
+    }
+  };
+
+  const onUp = () => {
+    if (!drag) return;
+    const from = drag.si, to = drag.target;
+    cleanup();
+    if (to === from || to === from + 1) return;
+    const moved = state.stack.splice(from, 1)[0];
+    const idx = to > from ? to - 1 : to;
+    state.stack.splice(idx, 0, moved);
+    render(); save();
+    toast('顺序已更新 · <code>' + escapeHtml(shortKey(moved.animKey)) + '</code> 现在是第 ' + (idx + 1) + ' 行', 'good');
+  };
+
+  host.addEventListener('pointerdown', e => {
+    const grip = e.target.closest('.grip');
+    if (!grip) return;
+    const th = grip.closest('th.rowh');
+    if (!th) return;
+    e.preventDefault();
+    const si = +th.dataset.si;
+    const trs = [...host.querySelectorAll('tbody tr.arow')];
+    const rects = trs.map(x => x.getBoundingClientRect());
+    const line = document.createElement('div');
+    line.className = 'hline';
+    const r0 = th.getBoundingClientRect();
+    line.style.top = Math.round(r0.top) + 'px';
+    line.style.left = Math.round(rects[0].left) + 'px';
+    line.style.width = Math.round(rects[0].width) + 'px';
+    const tag = document.createElement('div');
+    tag.className = 'dragtag';
+    tag.textContent = shortKey(state.stack[si].animKey);
+    tag.style.left = e.clientX + 'px';
+    tag.style.top = e.clientY + 'px';
+    document.body.appendChild(line);
+    document.body.appendChild(tag);
+    document.body.classList.add('dragging');
+    drag = { si, rects, target: si, line, tag };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+  });
+}
+
+function assignColors() {
+  const used = new Set();
+  state.stack.forEach(it => {
+    if (it.color && !used.has(it.color)) used.add(it.color);
+    else it.color = null;
+  });
+  state.stack.forEach((it, i) => {
+    if (it.color) return;
+    let c = STACK_COLORS.find(x => !used.has(x));
+    if (!c) c = 'hsl(' + ((i * 47) % 360) + ' 55% 62%)';
+    it.color = c;
+    used.add(c);
+  });
+}
+
+function save() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      v: 4,
+      items: state.stack.map(i => ({
+        animKey: i.animKey, def: i.def, fileName: i.fileName,
+        enabled: i.enabled, color: i.color
+      }))
+    }));
+  } catch (e) { /* 存不下就算了 */ }
+}
+
+function load() {
+  let raw = null;
+  try { raw = localStorage.getItem(LS_KEY); } catch (e) { return false; }
+  if (!raw) return false;
+  try {
+    const data = JSON.parse(raw);
+    if (!data || data.v !== 4 || !Array.isArray(data.items) || !data.items.length) return false;
+    state.stack = data.items.map(d => {
+      const it = makeItem(d.animKey, d.def, d.fileName || '', 'saved');
+      it.enabled = d.enabled !== false;
+      it.color = d.color || STACK_COLORS[0];
+      return it;
+    });
+    return true;
+  } catch (e) { return false; }
+}
+
+function newItems(defs, fileName, origin) {
+  const made = [];
+  defs.forEach(d => {
+    const it = makeItem(d.key, d.def, d.file || fileName || '', origin || 'sample');
+    if (typeof d.on === 'boolean') it.enabled = d.on;
+    made.push(it);
+  });
+  return made;
+}
+
+function addToStack(items, opts) {
+  opts = opts || {};
+  if (!items.length) return;
+  const offset = state.stack.length;
+  items.forEach((it, i) => {
+    it.color = STACK_COLORS[(offset + i) % STACK_COLORS.length];
+    state.stack.push(it);
+  });
+  assignColors();
+  render();
+  save();
+  if (!opts.quiet) {
+    toast('加入 ' + items.length + ' 个动画：<code>' + items.map(i => escapeHtml(shortKey(i.animKey))).slice(0, 3).join('</code> <code>') + (items.length > 3 ? '…' : '') + '</code>', 'good');
+  }
+}
+
+/* ---------- 示例 ---------- */
+function defaultSamples() { return SAMPLES.filter(s => s.on); }
+
+function loadSamples(opts) {
+  state.stack = newItems(defaultSamples(), 'bedrock-samples v1.26.50.4', 'sample');
+  assignColors();
+  render();
+  save();
+  if (!opts || !opts.quiet) toast('已载入 ' + defaultSamples().length + ' 个默认示例', 'good');
+}
+
+/* ---------- 示例库（勾选即生效） ---------- */
+function sampleRow(s, inStack) {
+  const on = inStack.has(s.key);
+  return '<label class="lib-row' + (on ? ' in-stack' : '') + '">'
+    + '<input type="checkbox" value="' + escapeHtml(s.key) + '"' + (on ? ' checked' : '') + '>'
+    + '<span class="nm">' + escapeHtml(shortKey(s.key)) + '</span>'
+    + (s.note ? '<span class="ds">' + escapeHtml(s.note) + '</span>' : '')
+    + (on ? '<span class="k">已在栈里</span>' : '')
+    + '</label>';
+}
+
+function openSampleLibrary() {
+  const inStack = new Set(state.stack.map(i => i.animKey));
+  const body = '<div class="lib">'
+    + '<p class="lib-note">勾上就立刻加进动画栈，取消勾选就立刻移除，不用再点确认。加进来之后拖行首改顺序，决定 <code>this</code> 读到什么、<code>override</code> 切在哪一行。</p>'
+    + SAMPLE_GROUPS.map(g => {
+      const rows = g.keys.map(k => SAMPLES.find(s => s.key === k)).filter(Boolean);
+      return '<section class="lib-group" data-group="' + g.id + '">'
+        + '<header class="lib-head">' + ic('layers')
+        + '<h4>' + escapeHtml(g.title) + '</h4>'
+        + '<span class="cnt">' + rows.length + '</span>'
+        + '<button class="btn tiny" data-all="' + g.id + '">全选</button>'
+        + '<button class="btn tiny primary" data-grab="' + g.id + '">整套加入</button></header>'
+        + '<p class="lib-note">' + escapeHtml(g.note) + '</p>'
+        + rows.map(s => sampleRow(s, inStack)).join('')
+        + '</section>';
+    }).join('')
+    + '</div>';
+  const foot = '<button class="btn" id="libClear">清空动画栈</button>'
+    + '<button class="btn primary" data-close="1">完成</button>';
+  openModal('示例动画库', body, foot);
+}
+
+/* 让某一行进/出动画栈 */
+function libToggle(key, on) {
+  const has = state.stack.some(i => i.animKey === key);
+  if (on && !has) {
+    const s = SAMPLES.find(x => x.key === key);
+    if (!s) return;
+    const its = newItems([s], 'bedrock-samples v1.26.50.4', 'sample');
+    its.forEach(i => { i.enabled = true; });
+    addToStack(its, { quiet: true });
+  } else if (!on && has) {
+    state.stack = state.stack.filter(i => i.animKey !== key);
+    render(); save();
+  }
+}
+
+/* 按 state.stack 回写弹窗里的勾选与标签 */
+function libSyncRows() {
+  const bodyEl = $('#modalBody');
+  if (!bodyEl || $('#modal').hidden) return;
+  const have = new Set(state.stack.map(i => i.animKey));
+  $$('.lib-row', bodyEl).forEach(row => {
+    const cb = row.querySelector('input');
+    if (!cb) return;
+    const on = have.has(cb.value);
+    cb.checked = on;
+    row.classList.toggle('in-stack', on);
+    const tag = row.querySelector('.k');
+    if (on && !tag) {
+      const sp = document.createElement('span');
+      sp.className = 'k';
+      sp.textContent = '已在栈里';
+      row.appendChild(sp);
+    } else if (!on && tag) {
+      tag.remove();
+    }
+  });
+}
+
+function libGrabGroup(id) {
+  const g = SAMPLE_GROUPS.find(x => x.id === id);
+  if (!g) return;
+  const have = new Set(state.stack.map(i => i.animKey));
+  const add = g.keys.filter(k => !have.has(k));
+  if (!add.length) { toast('这一组已经全在栈里了', 'warn'); return; }
+  const items = add.map(k => SAMPLES.find(s => s.key === k)).filter(Boolean);
+  const its = newItems(items, 'bedrock-samples v1.26.50.4', 'sample');
+  its.forEach(i => { i.enabled = true; });
+  addToStack(its, { quiet: true });
+  libSyncRows();
+}
+
+function initSamples() {
+  $('#btnSamples').addEventListener('click', () => openSampleLibrary());
+  $('#modal').addEventListener('click', e => {
+    const all = e.target.closest('[data-all]');
+    if (all) {
+      const g = SAMPLE_GROUPS.find(x => x.id === all.dataset.all);
+      const boxes = $$('.lib-group[data-group="' + all.dataset.all + '"] input', $('#modalBody'));
+      const next = !boxes.every(b => b.checked);
+      (g ? g.keys : []).forEach(k => libToggle(k, next));
+      libSyncRows();
+      all.textContent = next ? '取消全选' : '全选';
+      return;
+    }
+    const grab = e.target.closest('[data-grab]');
+    if (grab) { libGrabGroup(grab.dataset.grab); return; }
+    if (e.target.closest('#libClear')) {
+      state.stack = []; render(); save(); libSyncRows(); toast('动画栈已清空');
+      return;
+    }
+  });
+  /* 勾选即生效；同一动画出现在多组时状态一致 */
+  $('#modal').addEventListener('change', e => {
+    const cb = e.target;
+    if (!cb.matches || !cb.matches('.lib-row input[type=checkbox]')) return;
+    libToggle(cb.value, cb.checked);
+    libSyncRows();
+  });
+}
+
+/* ---------- modal ---------- */
+function openModal(title, bodyHTML, footHTML) {
+  $('#modalTitle').textContent = title;
+  $('#modalBody').innerHTML = bodyHTML;
+  $('#modalFoot').innerHTML = footHTML || '<button class="btn" data-close="1">关闭</button>';
+  $('#modal').hidden = false;
+}
+function closeModal() { $('#modal').hidden = true; }
+function initModal() {
+  $('#modalClose').addEventListener('click', closeModal);
+  $('#modal').addEventListener('click', e => {
+    if (e.target === $('#modal') || e.target.closest('[data-close]')) closeModal();
+  });
+}
+
+/* ---------- 导入 ---------- */
+/* bedrock-samples 里有几个动画文件带 // 注释（bee/cat/humanoid/player/...），
+   所以先用宽松解析，失败了再退回严格 JSON.parse */
+function looseJSON(src) {
+  let out = '', i = 0, q = null, n = src.length;
+  while (i < n) {
+    const c = src[i], d = src[i + 1];
+    if (q) {
+      out += c;
+      if (c === '\\') { out += src[i + 1] || ''; i += 2; continue; }
+      if (c === q) q = null;
+      i++; continue;
+    }
+    if (c === '"' || c === "'") { q = c === "'" ? '"' : c; out += c; i++; continue; }
+    if (c === '/' && d === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '/' && d === '*') { i += 2; while (i < n && !(src[i] === '*' && src[i + 1] === '/')) i++; i += 2; continue; }
+    out += c; i++;
+  }
+  out = out.replace(/"(\\.|[^"\\])*"|,(\s*[}\]])/g, (m, str) => (str ? m : m.replace(',', '')));
+  return out;
+}
+function parseJSONish(text) {
+  const s = String(text);
+  try { return JSON.parse(s); } catch (e) {
+    const cleaned = looseJSON(s.replace(/^\uFEFF/, ''));
+    return JSON.parse(cleaned);
+  }
+}
+
+function ingestFiles(files) {
+  const list = [...files];
+  if (!list.length) return;
+  let pending = list.length;
+  const collected = [];
+  list.forEach(f => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const json = parseJSONish(String(reader.result));
+        const items = parseAnimFile(json, f.name, 'import');
+        items.forEach(it => collected.push(it));
+      } catch (err) {
+        toast('解析失败 ' + escapeHtml(f.name) + '：' + escapeHtml(err.message || err), 'bad');
+      }
+      if (--pending === 0) finish(collected);
+    };
+    reader.onerror = () => {
+      toast('读不了 ' + escapeHtml(f.name), 'bad');
+      if (--pending === 0) finish(collected);
+    };
+    reader.readAsText(f);
+  });
+  function finish(items) {
+    if (!items.length) return;
+    if (items.length === 1) { addToStack(items); return; }
+    pickItems(items);
+  }
+}
+
+function pickItems(items) {
+  const body = '<p class="note">这个文件里有 ' + items.length + ' 个动画，勾选要加入动画栈的（默认全选）：</p>'
+    + '<div class="pick-list">' + items.map((it, i) =>
+      '<label class="pick"><input type="checkbox" checked data-i="' + i + '">'
+      + '<span>' + escapeHtml(shortKey(it.animKey)) + '</span>'
+      + '<span class="pl">' + it.channels.length + ' 通道 · ' + (it.length).toFixed(2) + 's</span></label>').join('')
+    + '</div>';
+  openModal('选择要导入的动画', body,
+    '<button class="btn" data-close="1">取消</button><button class="btn primary" id="pickOk">加入所选</button>');
+  $('#pickOk').addEventListener('click', () => {
+    const chosen = $$('#modalBody input[type=checkbox]').filter(c => c.checked).map(c => items[+c.dataset.i]);
+    closeModal();
+    if (chosen.length) addToStack(chosen);
+  });
+}
+
+function ingestText(text, name) {
+  let json;
+  try { json = parseJSONish(text); } catch (e) {
+    throw new Error('不是合法 JSON：' + e.message);
+  }
+  const items = parseAnimFile(json, name || 'pasted.json', 'paste');
+  if (items.length === 1) addToStack(items);
+  else pickItems(items);
+}
+
+function initImport() {
+  $('#btnImport').addEventListener('click', () => $('#fileInput').click());
+  $('#fileInput').addEventListener('change', e => {
+    ingestFiles(e.target.files);
+    e.target.value = '';
+  });
+  const veil = $('#dropveil');
+  let depth = 0;
+  window.addEventListener('dragenter', e => {
+    if (!e.dataTransfer || ![...(e.dataTransfer.types || [])].includes('Files')) return;
+    depth++; veil.classList.add('on');
+  });
+  window.addEventListener('dragover', e => { e.preventDefault(); });
+  window.addEventListener('dragleave', e => {
+    depth = Math.max(0, depth - 1);
+    if (!depth) veil.classList.remove('on');
+  });
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    depth = 0; veil.classList.remove('on');
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const entries = [...(dt.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+    if (entries.length) {
+      const files = [];
+      let pending = entries.length;
+      const done = () => { if (--pending === 0) ingestFiles(files); };
+      entries.forEach(en => walkEntry(en, files, done));
+    } else if (dt.files && dt.files.length) {
+      ingestFiles(dt.files);
+    }
+  });
+}
+function walkEntry(entry, out, done) {
+  if (entry.isFile) {
+    entry.file(f => { out.push(f); done(); }, () => done());
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const all = [];
+    const readMore = () => {
+      reader.readEntries(batch => {
+        if (!batch.length) {
+          let pending = all.length;
+          if (!pending) { done(); return; }
+          all.forEach(en => walkEntry(en, out, () => { if (--pending === 0) done(); }));
+          return;
+        }
+        all.push(...batch);
+        readMore();
+      }, () => done());
+    };
+    readMore();
+  } else done();
+}
+
+function initPaste() {
+  $('#btnPaste').addEventListener('click', () => {
+    openModal('粘贴动画 JSON',
+      '<p class="note">直接贴 bedrock-samples 里 <code>animations/*.json</code> 的内容，或者裸的 <code>{ "bones": { … } }</code>。</p>'
+      + '<textarea id="pasteArea" spellcheck="false" placeholder=\'{ "format_version": "1.8.0", "animations": { "animation.demo.test": { "loop": true, "bones": { "head": { "rotation": [0, 20, 0] } } } } }\'></textarea>'
+      + '<div class="err" id="pasteErr"></div>',
+      '<button class="btn" data-close="1">取消</button><button class="btn primary" id="pasteOk">解析并加入</button>');
+    $('#pasteOk').addEventListener('click', () => {
+      try {
+        ingestText($('#pasteArea').value, 'pasted.json');
+        closeModal();
+      } catch (err) {
+        $('#pasteErr').textContent = err.message || String(err);
+      }
+    });
+  });
+}
+
+/* ---------- 导出 ---------- */
+function exportPayload() {
+  const { cols, bounds } = buildMatrix();
+  return {
+    generator: 'bedrock-anim-lab',
+    layout: 'rows = animations (top row evaluates first), columns = bone / channel, cells = raw JSON literals',
+    order: cols.map((c, i) => ({
+      at: i + 1, anim: c.item.animKey, enabled: c.item.enabled,
+      override: c.item.flags.override, length: c.item.length
+    })),
+    boundaries: bounds.map(b => ({ at: b.si + 1, anim: b.item.animKey, clears: b.item.bones })),
+    cells: cols.map(c => ({
+      anim: c.item.animKey,
+      channels: c.item.channels.map(ch => ({
+        bone: ch.bone, channel: ch.base,
+        key: ch.rawKey,
+        kind: ch.kind,
+        raw: ch.src,
+        usesThis: !!ch.flags.thisRef,
+        usesMolang: !!ch.flags.molang
+      }))
+    }))
+  };
+}
+function initExport() {
+  $('#btnExport').addEventListener('click', () => {
+    const json = JSON.stringify(exportPayload(), null, 2);
+    openModal('导出当前叠加结果',
+      '<p class="note">当前时间点每个骨骼三个通道的最终值（已按顺序叠加、算上权重、应用 override 与 -this）。</p>'
+      + '<textarea id="exportArea" readonly spellcheck="false" style="min-height:260px;color:#a9c6c1">' + escapeHtml(json) + '</textarea>',
+      '<button class="btn" data-close="1">关闭</button>'
+      + '<button class="btn" id="copyExp">复制</button>'
+      + '<button class="btn primary" id="dlExp">下载 .json</button>');
+    $('#copyExp').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(json); toast('已复制到剪贴板', 'good'); }
+      catch (e) { $('#exportArea').select(); toast('已全选，按 Ctrl+C', 'bad'); }
+    });
+    $('#dlExp').addEventListener('click', () => {
+      const blob = new Blob([json], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'bedrock-anim-stack.json';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    });
+  });
+}
+
+/* ---------- 说明 ---------- */
+function initDocs() {
+  $('#btnDocs').addEventListener('click', () => {
+    const docs = [
+      ['order', '这张表怎么读', '<strong>一行 = 一段动画，一列 = 骨骼下面的一个通道</strong>（<code>head · rotation</code> 就是一列）。上面第一行先算，越往下越靠后叠。单元格里的值就是 JSON 里写的那几个字面量，<strong>没有代入时间、也没有算出数字</strong> —— 表达式原样摆着，因为你要看的是「作者写了什么」。'],
+      ['layers', '顺序就是语义', '拖动行首的抓手可以把整段动画上下挪。<code>this</code> 读到的是它<strong>上面</strong>所有行的累计，<code>override</code> 只抹掉它上面那些行 —— 所以换顺序 = 换结果，这也是这套动画系统里最容易踩的坑。'],
+      ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。带 this 的格子会标 <code>this</code> 徽标并淡紫底。'],
+      ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。表里用琥珀色的行边 + 一条通栏说明带标出来，上面被抹掉的格子会划掉并标 <code>⟂</code>。'],
+      ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。格子只列前 3 帧和最后一帧，<code>… 共 N 帧</code> 是可展开的全部数量。<code>pre</code> 与 <code>post</code> 不同时那一帧会加下划线（在这一点跳变）。<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
+      ['molang', '表达式', '<code>variable.*</code> / <code>query.*</code> / <code>math.*</code> 都是照抄的原文，不代入数字。所以这张表既能当阅读器，也能拿来核对「我到底写没写对」。'],
+      ['clock', '时长与循环', '行头显示 <code>animation_length</code>（缺省取最后一帧）和 <code>loop</code> 模式：<code>loop</code> 循环 / <code>hold</code> 停在末帧 / <code>once</code> 播完即止。'],
+      ['fx', '事件', '<code>sound_effects</code> / <code>particle_effects</code> 有内容时行头会显示 <code>fx ×N</code>，鼠标悬停看名字。'],
+      ['inbox', '示例库', '顶部「示例库」分三组：<strong>bedrock-samples 原生</strong>（默认栈）、<strong>FMBE 基础</strong>、<strong>FMBE 进阶 · 3D 方块</strong>。后两组列的是 wiki 页面里出现的原版动画，JSON 与仓库里的文件一致，没有改写。'],
+      ['keyboard', '操作', '拖动行首抓手换顺序 · 点行标题或眼睛启用/停用 · 点垃圾桶移除这一行 · <kbd>拖文件</kbd>进窗口导入 · 顶部「导出」看当前顺序与所有原始值。'],
+      ['brace', '文件来源', '示例逐字取自 bedrock-samples <code>v1.26.50.4</code> 的 <code>resource_pack/animations/*.json</code>。真实文件里有 6 个带 <code>//</code> 注释、不是严格 JSON，直接拖进来也能解析。']
+    ];
+    openModal('语义说明与图例', '<div class="docs">' + docs.map(d =>
+      '<div class="doc-card"><h4>' + ic(d[0]) + d[1] + '</h4><p>' + d[2] + '</p></div>').join('') + '</div>');
+  });
+}
+
+/* ---------- boot ---------- */
+function boot() {
+  initTheme();
+  const restored = load();
+  if (!restored) loadSamples({ quiet: true });
+  assignColors();
+  initModal();
+  initSamples();
+  initImport();
+  initPaste();
+  initExport();
+  initDocs();
+  initMatrix();
+  initDrag();
+  $('#stHint').textContent = HINT_DEFAULT;
+  render();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
+</script>
+
+
+</body></html>

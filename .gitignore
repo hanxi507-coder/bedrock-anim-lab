@@ -1,0 +1,8 @@
+# 语法自检用的抽取文件（由 index.html 生成，可随时重建）
+_check.js
+
+# 本地备份 / 临时裁剪图
+_backup/
+_crop*.png
+
+node_modules/
