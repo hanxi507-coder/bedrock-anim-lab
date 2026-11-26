@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 23:45（接手第十五次改动）** · `index.html` **3423 行 / 139,262 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 23:40（接手第十六次改动）** · `index.html` **3421 行 / 139,232 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,7 +78,7 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        139262 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ index.html        139232 B  ← 全部交付物（HTML+CSS+JS 内联）
 ├─ preview.png       177992 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
