@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-27 00:18（接手第十八次改动）** · `index.html` **3506 行 / 141,395 B**，`node --check` 通过。
+> 最后更新：**2026-11-27 00:22（接手第十九次改动）** · `index.html` **3438 行 / 139,434 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        141395 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       141958 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        139434 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       139364 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -234,7 +234,6 @@ header.nav
 body（flex column，`overflow: hidden` —— 整页不滚，只有 .mwrap 滚）
   header.nav
   main.shell（flex: 1 1 auto; min-height: 0; 自身也是 flex column）
-    #hint     一行提要（行=动画·列=骨骼/通道 · 上面的行先算 · 整行可拖 · 底部是最终值）+ 右侧「完整说明」按钮 · flex: none
     #colbar   已隐藏骨骼提示栏（默认 hidden：`已隐藏 N 根骨骼` + 骨骼 chip + 全部显示）· flex: none
     .mwrap > #matrix   矩阵表（.mtx）· flex: 1 1 auto; min-height: 0; overscroll-behavior: contain
       └ tbody 最后一行 tr.sumrow = 最终值（sticky bottom；th 里是「最终值 · 不代入时间」，没有时间控件）
@@ -287,7 +286,7 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 | `deadAt(bone, si, bounds)` | 下方是否存在生效中的 override 行且碰到该骨骼 → 该格划掉 |
 | `computeFinal()` | 无参数，按顺序把各行的表达式**相加**成每个通道的 AST（override 先清零、`this` 代入、`blend_weight` 乘权重），返回 `Map<'bone|base', {e:[AST,AST,AST], by}>` |
 | `astFrom` / `astSub` / `astFold` / `astSum` / `astPrint` / `astText` | 符号层：原文转 AST、把 `this` 换成上一行 AST、常量折叠、相加并抵消同类项、按优先级打印、单元格文本（数字走 `fmtV`） |
-| `sumRowHTML(cols, fin)` / `sumCellHTML(col, fin)` | 底部「最终值」行：左侧「最终值 · 不代入数字」，每列 x/y/z；太长加 `.clip` + `展开` |
+| `sumRowHTML(cols, fin)` / `sumCellHTML(col, fin)` | 底部「最终值」行：左侧只写「最终值」（2026-11-27 去掉了「不代入数字」副标题），每列 x/y/z；太长加 `.clip` + `展开` |
 | `exprUsesThis(ch, ax)` / `identVec(base)` | 判断某条轴是否读 `this`（用于脏值传播）/ 给通道的单位元（0 或 1） |
 | `axisCancels(ch, ax)` / `CANCEL_THIS` | 这一轴的值是不是「被 `- this` 写成绝对值」（系数 -1、没被乘除）→ 供 `shadow` 用 |
 | `fmtNum(n, base)` | 数字格式化（rotation / 时间 2 位，其余 3 位，去尾零） |
@@ -367,7 +366,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 底部「最终值」行是 sticky（`bottom: 0`），底色 `--bg-2` 必须不透明；行头那格同时 sticky left（`z-index: 6`），不然横向滚动会错位
 - 换序动画只动 `transform`（FLIP），不动布局；`<tr>` 上的 transform 在 `border-collapse: separate` 下是可靠的
 - 拖着的那行是 `.lift`：`z-index: 9`、单元格底色补成 `--card`（td 本来透明，不补就会透出下面的行）、上下各一条 1px 边线当"被拿起"的效果；松手/重建时 `place()` 重新把它贴回指针
-- 面板宽度：`.shell max-width: 1560px`（说明文字 `#hint` 单独 1040px）；矩阵列宽：标签列 232px，通道列 **208px**（2026-11-26 从 144 加宽，因为格子改成完整换行后 144 会把 `variable.tcos0 * -1.4` 这种常见表达式折成两行），`width: max(100%, calc(232px + var(--ncol) * 208px))`，窄屏横向滚动
+- 面板宽度：`.shell max-width: 1560px`（顶部说明已整块删除，表格从导航下方 20px 处开始）；矩阵列宽：标签列 232px，通道列 **208px**（2026-11-26 从 144 加宽，因为格子改成完整换行后 144 会把 `variable.tcos0 * -1.4` 这种常见表达式折成两行），`width: max(100%, calc(232px + var(--ncol) * 208px))`，窄屏横向滚动
 - 格子文字**不截断**：`.expr` 用 `white-space: pre-wrap` + `overflow-wrap: break-word`（`break-word` 而不是 `anywhere`，避免把 `query.body_y_rotation` 从中间劈开，除非单个 token 真的超过一行）；`.keys span` 同理
 - `table-layout: fixed`：列宽由第一行（`thead` 的 corner + 骨骼 colspan）决定，所以改列宽要动 `--ncol` 那个公式和 `.chanh` 的 `width` 两处
 - 行头 chips（`override` / `this ×N` / `molang ×N` …）是 10px 等宽小字、按语义分色（`.chip.ov` 琥珀 / `.chip.th` 蓝 / `.chip.bad` 红），不再继承 12.5px 正文；`.rh-meta` 允许换行，chips 多了会掉到第二行而不是被裁掉
@@ -475,7 +474,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 13. **拖拽范围**：在行头任意位置（动画名、序号、时间那一行）按住往上下拖 5px 以上就能换序，不必瞄准抓手；轻点动画名仍然只是开/关，不会误移。
 14. **横向滚动**：把矩阵横向滚到底，行头（尤其 `player.sleeping` 那条浅琥珀底）必须完全不透明，不能透出下面格子的文字。
 15. **长值折叠**：`humanoid.bob` 的左右臂 z 轴、`player.sleeping` 的 root.position/rotation 默认显示成一行 + 省略号，格子右下角有「展开」；点开后完整换行、按钮变「收起」；其余短值不受影响。
-16. **最终值**：底部一行左边是「最终值 · 不代入数字」，**没有时间控件**；默认 5 行时 `body.rotation` 是 `0 / 0 / 2`（sneaking 的 `0.5 - this` 被 athena 的 `-this` 抵掉），`head.rotation` 是 `30/0/0`（override 清零后 sleeping 的 `30-this`），`leftarm.rotation` 是 `10/0/-5`（`variable.tcos0` 被 `-this + 10` 消掉），`root.position` 显示成带 `query.body_y_rotation` 的长表达式并带「展开」。
+16. **最终值**：底部一行左边只有「最终值」三个字，**没有时间控件、也没有副标题**；默认 5 行时 `body.rotation` 是 `0 / 0 / 2`（sneaking 的 `0.5 - this` 被 athena 的 `-this` 抵掉），`head.rotation` 是 `30/0/0`（override 清零后 sleeping 的 `30-this`），`leftarm.rotation` 是 `10/0/-5`（`variable.tcos0` 被 `-this + 10` 消掉），`root.position` 显示成带 `query.body_y_rotation` 的长表达式并带「展开」。
 17. **换序手感**：按住行里任意位置（行头或格子）往下拖，那一行会跟手走并盖住经过的行，其它行实时让位（190ms 滑动）；拖到第 4 行再松手，顺序真的落到第 4 位，不是只挪一格。松手后位置保持、刷新后还在。
 18. **快速藏骨骼**：左上角「骨骼」按钮弹出 8 个芯片（当前 8/8），点 `head` → 芯片变暗、表头少一列、顶部出现「已隐藏 1 根骨骼」、面板不关且计数变 7/8；「全部显示」回到 8/8。`Alt` + 点 `body` 表头 → 只剩 body 一列，再 Alt + 点还原。
 19. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
@@ -483,6 +482,15 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-27 00:20 · 顶部说明整块删掉，最终值去掉副标题
+
+- 用户：「不传入数字这个还是不要了吧，让界面简洁一些，说明性的不用太多，使用这个网站的应该都懂这些」，顶部那行提要也不要了。
+- 删掉 `.sumrow` 行头里的「不代入数字」副标题（`.sum-sub` 的 markup + CSS 一起删），现在只剩「最终值」三个字。
+- 删掉整块 `#hint`（一行提要 + 「完整说明」按钮）以及配套的 `.intro` / `.hint-line` / `.hint-more` 样式和 `#hintMore` 的绑定。需要看说明还有顶栏 `?`（16 张卡片）。
+- 净效果：表格从导航下方 20px（`.shell` 的 `padding-top`）直接开始，5 行 + 最终值行全部同屏可见（之前第 5 行被压在最终值行后面）。
+- `preview.png` 重拍。
+
 
 ### 2026-11-27 00:15 · 顶部说明压成一行，把高度还给表格
 
