@@ -1070,9 +1070,13 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   padding: 7px 10px;
   vertical-align: middle;
   white-space: normal;
+  cursor: grab;                                  /* 整块行头都能拖 */
   box-shadow: inset 3px 0 0 var(--c, var(--border-2));
 }
-.mtx tbody th.rowh.ov { background: var(--amber-soft); box-shadow: inset 3px 0 0 var(--amber); }
+/* 行头里的可点元素要恢复成手型，否则会继承 grab，看着像拖拽 */
+.mtx tbody th.rowh .key,
+.mtx tbody th.rowh .acts button { cursor: pointer; }
+.mtx tbody th.rowh.ov { background: color-mix(in srgb, var(--amber) 9%, var(--card)); box-shadow: inset 3px 0 0 var(--amber); }
 .mtx tbody th.rowh.off { background: var(--bg-2); }
 .mtx tbody th.rowh.off .rh-top,
 .mtx tbody th.rowh.off .rh-meta { opacity: .45; }
@@ -1082,7 +1086,9 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   flex: none;
   cursor: grab;
   border-radius: 4px;
-  padding: 1px;
+  /* 视觉还是 16px 的图标，但热区撑到 24×24（负 margin 抵掉，布局不动） */
+  padding: 4px;
+  margin: -4px -2px -4px -4px;
   transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
 .rh-top .grip:hover { background: var(--hover); }
@@ -2143,7 +2149,7 @@ function rowHead(r, allBones) {
     + '<div class="rh-top">'
     + '<span class="grip" role="button" tabindex="0"'
     + ' aria-label="调整顺序：' + escapeHtml(shortKey(it.animKey)) + '，当前第 ' + (r.si + 1) + ' 行，按上下方向键移动"'
-    + ' title="上下拖动改顺序 · 聚焦后按 ↑ ↓ 移动">' + ic('grip') + '</span>'
+    + ' title="上下拖动改顺序（整块行头都能拖）· 聚焦后按 ↑ ↓ 移动">' + ic('grip') + '</span>'
     + '<span class="idx">' + String(r.si + 1).padStart(2, '0') + '</span>'
     + '<span class="key" data-act="toggle" title="' + escapeHtml(it.animKey) + '">'
     + escapeHtml(shortKey(it.animKey)).replace(/\./g, '.<wbr>') + '</span>'
@@ -2326,9 +2332,13 @@ function moveRow(from, to) {
   return true;
 }
 
+/* 刚拖完的那一下 click 不要当成「点开/关」：整行都能拖之后，拖拽起点经常正好落在动画名上 */
+let lastDragAt = 0;
+
 function initMatrix() {
   const host = $('#matrix');
   host.addEventListener('click', e => {
+    if (Date.now() - lastDragAt < 300) return;
     const bh = e.target.closest('th.boneh[data-bone]');
     if (bh) { hideBone(bh.dataset.bone); return; }
     const btn = e.target.closest('[data-act]');
@@ -2375,7 +2385,6 @@ function initDrag() {
     if (!drag) return;
     drag.line.remove(); drag.tag.remove();
     document.body.classList.remove('dragging');
-    window.removeEventListener('pointermove', onMove);
     drag = null;
   };
 
@@ -2412,31 +2421,66 @@ function initDrag() {
   };
 
   host.addEventListener('pointerdown', e => {
-    const grip = e.target.closest('.grip');
-    if (!grip) return;
-    const th = grip.closest('th.rowh');
+    if (e.button !== 0) return;
+    const th = e.target.closest('th.rowh');
     if (!th) return;
-    e.preventDefault();
+    if (e.target.closest('.acts')) return;         // 眼睛 / 垃圾桶不参与拖拽
     const si = +th.dataset.si;
-    const trs = [...host.querySelectorAll('tbody tr.arow')];
-    const rects = trs.map(x => x.getBoundingClientRect());
-    const line = document.createElement('div');
-    line.className = 'hline';
-    const r0 = th.getBoundingClientRect();
-    line.style.top = Math.round(r0.top) + 'px';
-    line.style.left = Math.round(rects[0].left) + 'px';
-    line.style.width = Math.round(rects[0].width) + 'px';
-    const tag = document.createElement('div');
-    tag.className = 'dragtag';
-    tag.textContent = shortKey(state.stack[si].animKey);
-    tag.style.left = e.clientX + 'px';
-    tag.style.top = e.clientY + 'px';
-    document.body.appendChild(line);
-    document.body.appendChild(tag);
-    document.body.classList.add('dragging');
-    drag = { si, rects, target: si, line, tag };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp, { once: true });
+    if (!(si >= 0)) return;
+    const x0 = e.clientX, y0 = e.clientY;
+
+    const startDrag = ev => {
+      const trs = [...host.querySelectorAll('tbody tr.arow')];
+      const rects = trs.map(x => x.getBoundingClientRect());
+      const line = document.createElement('div');
+      line.className = 'hline';
+      const r0 = th.getBoundingClientRect();
+      line.style.top = Math.round(r0.top) + 'px';
+      line.style.left = Math.round(rects[0].left) + 'px';
+      line.style.width = Math.round(rects[0].width) + 'px';
+      const tag = document.createElement('div');
+      tag.className = 'dragtag';
+      tag.textContent = shortKey(state.stack[si].animKey);
+      tag.style.left = ev.clientX + 'px';
+      tag.style.top = ev.clientY + 'px';
+      document.body.appendChild(line);
+      document.body.appendChild(tag);
+      document.body.classList.add('dragging');
+      const sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+      drag = { si, rects, target: si, line, tag };
+    };
+
+    const stopWait = () => {
+      window.removeEventListener('pointermove', wait);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+    };
+    const wait = ev => {
+      if (!drag) {
+        const dy = Math.abs(ev.clientY - y0), dx = Math.abs(ev.clientX - x0);
+        if (dy < 5 && dx < 12) return;             // 还没动够：先当点击
+        if (dx > 12 && dx > dy * 2) {              // 明显是横向动作：不换序，也别让松手变成点击
+          lastDragAt = Date.now();
+          stopWait();
+          return;
+        }
+        if (dy < 5) return;                        // 竖向还不够，再等等
+        startDrag(ev);
+      }
+      onMove(ev);
+    };
+    const up = () => {
+      stopWait();
+      if (drag) { lastDragAt = Date.now(); onUp(); }
+    };
+    const cancel = () => {
+      stopWait();
+      if (drag) { lastDragAt = 0; cleanup(); }
+    };
+    window.addEventListener('pointermove', wait);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
   });
 }
 
@@ -2887,7 +2931,7 @@ function initDocs() {
       ['clock', '时长与循环', '行头显示 <code>animation_length</code>（缺省取最后一帧）和 <code>loop</code> 模式：<code>loop</code> 循环 / <code>hold</code> 停在末帧 / <code>once</code> 播完即止。'],
       ['fx', '事件', '<code>sound_effects</code> / <code>particle_effects</code> 有内容时行头会显示 <code>fx ×N</code>，鼠标悬停看名字。'],
       ['inbox', '示例库', '顶部「示例库」分三组：<strong>bedrock-samples 原生</strong>（默认栈）、<strong>FMBE 基础</strong>、<strong>FMBE 进阶 · 3D 方块</strong>。后两组列的是 wiki 页面里出现的原版动画，JSON 与仓库里的文件一致，没有改写。'],
-      ['keyboard', '操作', '拖动行首抓手换顺序 · 点行标题或眼睛启用/停用 · 点骨骼表头收起该骨骼的通道列 · 点垃圾桶移除这一行 · <kbd>拖文件</kbd>进窗口导入 · 顶部「导出」看当前顺序与所有原始值。'],
+      ['keyboard', '操作', '拖动行首换顺序（整块行头都能拖，不必瞄准小圆点；往上/下拖 5px 才算拖，轻点仍是开/关）· 点行标题或眼睛启用/停用 · 点骨骼表头收起该骨骼的通道列 · 点垃圾桶移除这一行 · <kbd>拖文件</kbd>进窗口导入 · 顶部「导出」看当前顺序与所有原始值。'],
       ['brace', '文件来源', '示例逐字取自 bedrock-samples <code>v1.26.50.4</code> 的 <code>resource_pack/animations/*.json</code>。真实文件里有 6 个带 <code>//</code> 注释、不是严格 JSON，直接拖进来也能解析。']
     ];
     openModal('语义说明与图例', '<div class="docs">' + docs.map(d =>

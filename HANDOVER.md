@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 15:35（接手第四次改动）** · `index.html` **2925 行 / 118,021 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 15:52（接手第五次改动）** · `index.html` **2969 行 / 119,931 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -76,7 +76,7 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        118021 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ index.html        119931 B  ← 全部交付物（HTML+CSS+JS 内联）
 ├─ preview.png       148581 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：覆盖率 + 斜纹 + -this 划掉 + 撤销按钮）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
@@ -265,7 +265,7 @@ footer.statusbar
 
 | 函数 | 职责 |
 | --- | --- |
-| `initDrag()` | 纵向拖行换序：pointerdown 抓 `.grip` / 行首 → 生成 `.hline` 指示线 + `.dragtag`；用 `clientY` 与各行中线比较算插入点；`pointerup` 落库 `state.stack` 并 `render(); save()` |
+| `initDrag()` | 纵向拖行换序：**整块行头 `th.rowh` 都能起手**（除了眼睛/垃圾桶），先过 5px 阈值、且竖向位移要大于横向才进拖拽（轻微抖动 / 横向滑动不算），之后生成 `.hline` 指示线 + `.dragtag`；用 `clientY` 与各行中线比较算插入点；`pointerup` 落库 `state.stack` 并 `render(); save()`。拖完 300ms 内的 click 被 `lastDragAt` 吞掉，避免顺带把行点开/关 |
 | `initMatrix()` | 表内点击委托：点骨骼表头 → `hideBone()`；`[data-act]` = toggle / remove。键盘：骨骼表头聚焦后 Enter / 空格隐藏，抓手聚焦后 ↑↓ / Home / End 换序 |
 | `toggleItem()` / `removeItem()` | 启停 / 删除一行 |
 | `initColbar()` | 「已隐藏」栏点击委托：`[data-show]` → `showBone()`，`#colShowAll` → 清空 `state.hiddenBones` |
@@ -322,6 +322,8 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 行头 chips（`override` / `this ×N` / `molang ×N` …）是 10px 等宽小字、按语义分色（`.chip.ov` 琥珀 / `.chip.th` 蓝 / `.chip.bad` 红），不再继承 12.5px 正文；`.rh-meta` 允许换行，chips 多了会掉到第二行而不是被裁掉
 - 空单元格分两种：`td.none` 一个 `·`（有骨骼没通道）；`td.none.bnone` 斜纹（连骨骼都没有，`repeating-linear-gradient` + `color-mix` 取 `--border-2` 22%，深色很淡、浅色更淡）
 - 被 `- this` 抹掉的单轴：`.vec span.cut` 透明 42% + 删除线 + 行尾 `<em class="cutmark">⟂</em>`；三条轴全中时改用整格 `.dead`（省掉三个 ⟂，和 override 观感统一）
+- **行头是 sticky 的，背景必须不透明**：`.rowh.ov` 以前用 `--amber-soft`（9% alpha），横向滚动时会透出下面的格子文字、看起来像重影；现在改成 `color-mix(in srgb, var(--amber) 9%, var(--card))` 的实色。以后给 sticky 元素加底色，别直接用带 alpha 的 token
+- 行头 `cursor: grab`（整块可拖），但 `.key` 和 `.acts button` 单独 `cursor: pointer`；抓手图标的视觉尺寸不变，靠 `padding:4px` + 负 margin 把热区撑到 24×29
 - 断点：1023px、767px（767 以下隐藏部分说明、缩列宽）
 
 状态语义色：`--accent`（交互）/ 琥珀（override 边界）/ 蓝 `#93C5FD`（`this`）/ 灰（被抹掉）。
@@ -334,7 +336,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 | 操作 | 结果 |
 | --- | --- |
-| 拖行首抓手上下拖 | 换行序；松手即重算 `⟂` 与蓝标 |
+| 拖行首上下拖 | 换行序（**整块行头都能起手**，不一定要抓小圆点）；松手即重算 `⟂` 与蓝标 |
 | 点骨骼表头（`root` / `head` 那一格） | 收起该骨骼的全部通道列；矩阵上方出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。**只影响显示** |
 | 点眼睛 | 该行停用/启用（停用行不参与 `this` 与 override 判定） |
 | 点垃圾桶 | 从栈里删除 |
@@ -412,10 +414,20 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 10. **撤销 / 重做**：随便点掉一行的眼睛 → `Ctrl+Z` 恢复（顶栏撤销按钮可点，重做按钮亮起）→ `Ctrl+Y` 再停用一次；换序、移除、替换整栈同样能回退。输入框里按 Ctrl+Z 应该只影响输入框文本。
 11. **`- this` 覆盖**：`athena_pose` 写了 `-this/-this/-this+2`，所以 `move`、`bob` 的四肢旋转格被划掉并带 `⟂`；`sneaking` 的 body.rotation 整格划掉；而 `athena_pose` 自己的格子是正常的。`sleeping` 那条 `30.0 - this` 只影响 head 的 x，但那一格已被 override 整格抹掉。
 12. **覆盖率与斜纹**：`move` 行头是 `骨骼 4/8`，`root/body/head` 的格子是斜纹；`sneaking` 的 `rightitem` 是斜纹，但 `leftleg.rotation` 这种「有骨骼没通道」是 `·`。
+13. **拖拽范围**：在行头任意位置（动画名、序号、时间那一行）按住往上下拖 5px 以上就能换序，不必瞄准抓手；轻点动画名仍然只是开/关，不会误移。
+14. **横向滚动**：把矩阵横向滚到底，行头（尤其 `player.sleeping` 那条浅琥珀底）必须完全不透明，不能透出下面格子的文字。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 15:52 · 行头可拖范围放大 + 修 sticky 行头透明
+
+- **横向滚动时动画名重影**：`.rowh.ov` 用的是 `--amber-soft`（9% alpha），sticky 行头本该挡住下面滚过去的格子，结果透了上来。改成 `color-mix(in srgb, var(--amber) 9%, var(--card))`，实测 computed `background-color` 已是无 alpha 的 `color(srgb …)`。
+- **可拖范围**：以前只有 16px 的抓手能起手，现在整块 `th.rowh`（眼睛/垃圾桶除外）都能拖；加了 5px 阈值 + 「竖向位移 > 横向」判定，轻点仍是开关、横滑不会误触；拖完 300ms 内的 click 直接忽略（`lastDragAt`），避免 dragging 结束时把行点成停用。抓手热区也从 16px 撑到 24×29（`padding:4px` + 负 margin，布局不动）。
+- `cursor`：行头 `grab`，`.key` / `.acts button` 保持 `pointer`。
+- 验证：`bsk drag` 从行头中部（不是抓手）把第 3 行拖到第 2 行 → 顺序变了、状态栏仍是「5 个动画」没被误停用；点撤销按钮复原；`grip` 实测 24×29。
+- `preview.png` 无需重拍（外观只有 override 行底色从半透明变实色，肉眼几乎一致）。
 
 ### 2026-11-26 15:35 · 撤销/重做 + `- this` 也算「被覆盖」+ 骨骼覆盖率
 
