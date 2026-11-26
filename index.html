@@ -1746,11 +1746,11 @@ const SAMPLE_GROUPS = [
   {
     id: 'fmbe',
     title: 'FMBE 基础',
-    note: 'wiki.bedrock.dev/commands/display-entities 里用到的原版动画。',
+    note: 'wiki.bedrock.dev/commands/display-entities 的原版动画，顺序 = 该页 render.mcfunction 里 /playanimation 的先后。',
     keys: [
       'animation.player.sleeping', 'animation.creeper.swelling', 'animation.ender_dragon.neck_head_movement',
       'animation.warden.move', 'animation.player.attack.rotations',
-      'animation.parrot.moving', 'animation.parrot.dance', 'animation.minecart.move'
+      'animation.parrot.moving', 'animation.minecart.move', 'animation.parrot.dance'
     ]
   },
   {
@@ -2236,7 +2236,7 @@ function sampleRow(s, inStack) {
 function openSampleLibrary() {
   const inStack = new Set(state.stack.map(i => i.animKey));
   const body = '<div class="lib">'
-    + '<p class="lib-note">勾上就立刻加进动画栈，取消勾选就立刻移除，不用再点确认。加进来之后拖行首改顺序，决定 <code>this</code> 读到什么、<code>override</code> 切在哪一行。</p>'
+    + '<p class="lib-note">勾上就立刻加进动画栈，取消勾选就立刻移除，不用再点确认；「替换整栈」= 清掉现有全部、只留这一组。加进来之后拖行首改顺序，决定 <code>this</code> 读到什么、<code>override</code> 切在哪一行。</p>'
     + SAMPLE_GROUPS.map(g => {
       const rows = g.keys.map(k => SAMPLES.find(s => s.key === k)).filter(Boolean);
       return '<section class="lib-group" data-group="' + g.id + '">'
@@ -2244,7 +2244,7 @@ function openSampleLibrary() {
         + '<h4>' + escapeHtml(g.title) + '</h4>'
         + '<span class="cnt">' + rows.length + '</span>'
         + '<button class="btn tiny" data-all="' + g.id + '">全选</button>'
-        + '<button class="btn tiny primary" data-grab="' + g.id + '">整套加入</button></header>'
+        + '<button class="btn tiny primary" data-grab="' + g.id + '" title="清掉当前动画栈，只保留这一组（其他动画删除）">替换整栈</button></header>'
         + '<p class="lib-note">' + escapeHtml(g.note) + '</p>'
         + rows.map(s => sampleRow(s, inStack)).join('')
         + '</section>';
@@ -2293,17 +2293,21 @@ function libSyncRows() {
   });
 }
 
+/* 「替换整栈」：清掉现有全部，只留这一组（顺序 = 组里 keys 的顺序） */
 function libGrabGroup(id) {
   const g = SAMPLE_GROUPS.find(x => x.id === id);
   if (!g) return;
-  const have = new Set(state.stack.map(i => i.animKey));
-  const add = g.keys.filter(k => !have.has(k));
-  if (!add.length) { toast('这一组已经全在栈里了', 'warn'); return; }
-  const items = add.map(k => SAMPLES.find(s => s.key === k)).filter(Boolean);
+  const items = g.keys.map(k => SAMPLES.find(s => s.key === k)).filter(Boolean);
+  if (!items.length) return;
   const its = newItems(items, 'bedrock-samples v1.26.50.4', 'sample');
   its.forEach(i => { i.enabled = true; });
-  addToStack(its, { quiet: true });
+  const dropped = state.stack.filter(i => g.keys.indexOf(i.animKey) < 0).length;
+  state.stack = its;
+  assignColors();
+  render(); save();
   libSyncRows();
+  toast('动画栈已换成「' + g.title + '」· ' + its.length + ' 个动画'
+    + (dropped ? '，移除 ' + dropped + ' 个' : ''), 'good');
 }
 
 function initSamples() {

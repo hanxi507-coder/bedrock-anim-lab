@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 14:05**（接手第一次改动）· `index.html` **2605 行 / 102,521 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 14:22（接手第二次改动）** · `index.html` **2609 行 / 102,908 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -71,9 +71,9 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        102521 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ index.html        102908 B  ← 全部交付物（HTML+CSS+JS 内联）
 ├─ preview.png       142800 B  默认 5 行矩阵截图（深色，1723×857，2026-11-26 重拍）
-├─ samples.png       153907 B  示例库弹窗截图（深色，同上）
+├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮，2026-11-26 重拍）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
 ├─ HANDOVER.md                 本文
@@ -94,6 +94,10 @@ D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
 - FMBE 的分组依据：`https://wiki.bedrock.dev/commands/display-entities`（“A New Way to Create Display Entities”）。
   FMBE 不写新动画，而是把**原版动画当 Molang 载体**，用
   `/playanimation @e[tag=wiki:fmbe] <原版动画> none 0 "<molang>"` 往里写 `v.*`。
+- **组内顺序 = 该页 `render.mcfunction` 里 `/playanimation` 的先后**，一条都不能乱：
+  `player.sleeping → creeper.swelling → ender_dragon.neck_head_movement → warden.move → player.attack.rotations → parrot.moving → minecart.move → parrot.dance`。
+  之前把 `parrot.dance` 排在 `minecart.move` 前面（错：zpos 会抢在 ypos 之前算），2026-11-26 已改正。
+- wiki 里写的是 `animation.minecart.move.v1.0`，但 bedrock-samples v1.26.50.4 的 `minecart.animation.json` 里键名就是 `animation.minecart.move`（无 `.v1.0`）——**以文件为准**，别照 wiki 改名。
 - 注意：`web_fetch` 在本机被 DNS 劫持（GitHub 解析到 198.18.x.x），但 **`Invoke-WebRequest` 走系统代理（127.0.0.1:12000）是通的**。要联网抓资料用 shell，别用 web_fetch。
 
 ---
@@ -242,10 +246,10 @@ footer.statusbar
 | `initDrag()` | 纵向拖行换序：pointerdown 抓 `.grip` / 行首 → 生成 `.hline` 指示线 + `.dragtag`；用 `clientY` 与各行中线比较算插入点；`pointerup` 落库 `state.stack` 并 `render(); save()` |
 | `initMatrix()` | 表内点击委托：`[data-act]` = toggle / remove |
 | `toggleItem()` / `removeItem()` | 启停 / 删除一行 |
-| `initSamples()` | 示例库：`click` 委托处理「全选」「整套加入」「清空」；`change` 处理单个复选框 → `libToggle()` → `libSyncRows()` |
+| `initSamples()` | 示例库：`click` 委托处理「全选」「替换整栈」「清空」；`change` 处理单个复选框 → `libToggle()` → `libSyncRows()` |
 | `libToggle(key, on)` | **勾上即加入**（`newItems` + 强制 `enabled = true`），**取消即移除** |
 | `libSyncRows()` | 按 `state.stack` 回写弹窗里的勾选态 / `.in-stack` / 「已在栈里」标签 |
-| `libGrabGroup(id)` | 整组加入（跳过已在栈里的） |
+| `libGrabGroup(id)` | **替换整栈**：`state.stack = ` 这一组（顺序 = `g.keys` 顺序），其他动画全删；`assignColors()` 重排配色；toast 报「移除 N 个」。（旧行为是「追加缺的」，2026-11-26 按用户要求改成替换） |
 | `loadSamples()` | 载入默认示例栈（`SAMPLES.filter(s => s.on)`）——**只在 boot 首次、localStorage 为空时自动调用** |
 | `initImport()` / `ingestFiles()` / `walkEntry()` | 文件选择 / 全页拖拽（含文件夹递归）/ 多动画时弹勾选列表 `pickItems()` |
 | `initPaste()` | 粘贴 JSON 弹窗 |
@@ -294,7 +298,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 | 拖行首抓手上下拖 | 换行序；松手即重算 `⟂` 与蓝标 |
 | 点眼睛 | 该行停用/启用（停用行不参与 `this` 与 override 判定） |
 | 点垃圾桶 | 从栈里删除 |
-| 顶栏「示例库」 | 打开弹窗；**勾选立刻增删**，无确认按钮；组头有「全选」「整套加入」 |
+| 顶栏「示例库」 | 打开弹窗；**勾选立刻增删**，无确认按钮；组头有「全选」「**替换整栈**」（清掉现有全部，只留这一组） |
 | 顶栏「导入动画」/ 拖文件进窗口 | 单个动画直接入栈；一个文件多个动画时弹勾选列表 |
 | 顶栏「粘贴」 | 手动贴 JSON（同样容忍 `//` 注释） |
 | 顶栏「导出」 | 下载 `bedrock-animation-stack.json`（顺序 + 边界 + 每通道原文） |
@@ -355,10 +359,18 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 4. 示例库勾选一条 → 关闭弹窗前后都能在矩阵里看到它（且是启用状态）；
 5. 导入 `C:\Users\DUANQIUYI\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈；
 6. **点掉 `player.sleeping` 的眼睛** → 琥珀带消失、`sneaking`/`athena_pose` 的 `head` 格子恢复成正常值（`⟂` 清零，状态栏变成「5 个动画（4 启用）· 7 根骨骼 · 10 个通道」）；再点亮 → 全部复原。这条是 2026-11-26 修的 bug 的回归用例。
+7. 示例库点「**替换整栈**」（FMBE 基础）→ 栈里只剩这 8 行，顺序 `sleeping → creeper.swelling → dragon.neck_head_movement → warden.move → attack.rotations → parrot.moving → minecart.move → parrot.dance`，toast 报「移除 4 个」；再对「bedrock-samples 原生」点一次 → 回到默认 5 行。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 14:22 · 示例库「整套加入」改成「替换整栈」+ FMBE 组顺序对齐 wiki
+
+- **替换整栈**（`libGrabGroup()` 重写，`index.html` 3 处）：以前是「把缺的追加进来」，现在是 `state.stack = 这一组`，其他动画全删，`assignColors()` 重排配色，toast 报「移除 N 个」。按钮文案从「整套加入」改成「替换整栈」并加 `title` 说明，弹窗顶部说明同步改口。
+- **FMBE 顺序**：组里 `parrot.dance` 原来排在 `minecart.move` 前面，与 wiki `render.mcfunction` 相反（那边是 `wiki.ypos` 的 minecart 先、`wiki.zpos` 的 dance 后）。已按 wiki 顺序改正，组说明里注明「顺序 = render.mcfunction 里 /playanimation 的先后」。`adv` 组是同一序列的前 5 条，本来就对，没动。
+- **验证**（bsk）：对 FMBE 点「替换整栈」→ 8 行，顺序与 wiki 逐条一致，toast「移除 4 个」，弹窗勾选态同步（core 只剩 sleeping 打勾、fmbe 全勾、adv 全勾）；再对 core 点一次 → 回到默认 5 行。
+- `samples.png` 重拍（按钮改名了）；`preview.png` 无需重拍（矩阵没动）。
 
 ### 2026-11-26 14:05 · 修「停用 override 行仍然生效」
 
