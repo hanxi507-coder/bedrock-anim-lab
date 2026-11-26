@@ -597,26 +597,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .mtx tbody tr.sumrow .sum-top {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 7px;
   font-size: 11.5px;
 }
 .mtx tbody tr.sumrow .sum-top b { font-weight: 600; color: var(--text); }
-.mtx tbody tr.sumrow .tsum {
-  margin-left: auto;
+.mtx tbody tr.sumrow .sum-sub {
   font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-2);
-  font-variant-numeric: tabular-nums;
-}
-.mtx tbody tr.sumrow .tslider {
-  width: 100%;
-  margin: 7px 0 1px;
-  height: 14px;
-  accent-color: var(--accent);
-  cursor: pointer;
+  font-size: 10px;
+  color: var(--text-3);
 }
 .mtx tbody tr.sumrow .num { color: var(--text); }
 .vec span.unk .num { color: var(--text-3); }
+.vec span.tv .num { color: var(--text-2); font-style: italic; }
 
 .vec { display: flex; flex-direction: column; gap: 2px; }
 .vec span {
@@ -1342,7 +1334,7 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   <div class="intro" id="hint">
     <p>
       <b>行 = 动画，列 = 骨骼 / 通道。</b>格子里的值就是 JSON 里写的原文，<code>variable</code> / <code>query</code> 不代入数字。
-      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起通道列；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文；表格最底下一行是<b>叠加后的最终值</b>，左边滑块可以改时间。
+      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起通道列；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文；表格最底下一行是<b>叠加后的最终值</b>（只跟顺序有关，不代入时间）。
     </p>
     <p class="sub">
       <code>this</code> 读到的是"上面所有行在这个通道上的累计"，所以 <code>0.5 - this</code> 等于把该轴设成绝对值；
@@ -1785,18 +1777,18 @@ function makeChannel(bone, base, raw, rawKey, legacyKey) {
 /* 采样一个通道，返回 {v:[x,y,z], unresolved, miss[]}
    thisArr = 该通道在「这张卡之前」的累计值，供表达式里的 this / -this 读取 */
 function sampleChannel(ch, localT, ctx, thisArr) {
-  const missList = [];
+  const missByAxis = [[], [], []];              // 逐轴记「缺了哪些符号」，最终值面板要知道是哪一轴缺
   const axisCtx = (i) => ({
     anim_time: ctx.anim_time, life_time: ctx.life_time, delta_time: ctx.delta_time,
     frame_alpha: ctx.frame_alpha, modified_distance_moved: ctx.modified_distance_moved,
-    vars: ctx.vars, thisV: thisArr ? thisArr[i] : 0, miss: missList, strictQuery: ctx.strictQuery
+    vars: ctx.vars, thisV: thisArr ? thisArr[i] : 0, miss: missByAxis[i], strictQuery: ctx.strictQuery
   });
   const ev = (val, out, i) => {
     if (typeof val === 'number') { out[i] = val; return 0; }
     if (typeof val === 'string') {
-      const before = missList.length;
+      const before = missByAxis[i].length;
       const n = evalMolang(val, axisCtx(i));
-      const ok = isFinite(n) && missList.length === before;   // 引用了没喂值的变量也算「算不出」
+      const ok = isFinite(n) && missByAxis[i].length === before;   // 引用了没喂值的变量也算「算不出」
       out[i] = isFinite(n) ? n : 0;
       if (!ok) badArr[i] = true;
       return ok ? 0 : 1;
@@ -1811,10 +1803,10 @@ function sampleChannel(ch, localT, ctx, thisArr) {
   let bad = 0;
   if (ch.kind === 'static') {
     for (let i = 0; i < 3; i++) bad += ev(ch.value[i], out, i);
-    return { v: out, bad: badArr, unresolved: bad, miss: missList };
+    return pack();
   }
   const ks = ch.keys;
-  if (!ks.length) return { v: out, bad: [true, true, true], unresolved: 3, miss: missList };
+  if (!ks.length) return { v: out, bad: [true, true, true], missAxis: [[], [], []], unresolved: 3, miss: [] };
   let start, end, u = 0, mode = 'linear';
   if (localT <= ks[0].t) { start = end = ks[0].pre; }
   else if (localT >= ks[ks.length - 1].t) { start = end = ks[ks.length - 1].post; }
@@ -1833,22 +1825,30 @@ function sampleChannel(ch, localT, ctx, thisArr) {
       const p1 = start, p2 = end;
       const p3 = (ks[idx + 1] || ks[idx] || ks[ks.length - 1]).pre;
       const c = axisCtx(i2);
-      const before = missList.length;
+      const before = missByAxis[i2].length;
       val = hermite(num(p0[i2], c), num(p1[i2], c), num(p2[i2], c), num(p3[i2], c), u);
       out[i2] = isFinite(val) ? val : 0;
-      if (!isFinite(val) || missList.length > before) badArr[i2] = true;
+      if (!isFinite(val) || missByAxis[i2].length > before) badArr[i2] = true;
     } else if (start === end) {
       bad += ev(start[i2], out, i2);
     } else {
       const c = axisCtx(i2);
-      const before = missList.length;
+      const before = missByAxis[i2].length;
       const a = num(start[i2], c), b = num(end[i2], c);
       out[i2] = isFinite(a) && isFinite(b) ? lerp(a, b, u) : (isFinite(a) ? a : 0);
-      if (!isFinite(a) || !isFinite(b) || missList.length > before) { bad++; badArr[i2] = true; }
+      if (!isFinite(a) || !isFinite(b) || missByAxis[i2].length > before) { bad++; badArr[i2] = true; }
     }
   }
-  if (missList.length) bad = Math.max(bad, 1);
-  return { v: out, bad: badArr, unresolved: bad, miss: missList.slice(0, 4) };
+  return pack();
+  function pack() {
+    const all = [].concat.apply([], missByAxis);
+    if (all.length) bad = Math.max(bad, 1);
+    return {
+      v: out, bad: badArr, unresolved: bad,
+      missAxis: missByAxis.map(a => a.slice(0, 3)),
+      miss: [].concat.apply([], missByAxis).slice(0, 4)
+    };
+  }
 }
 function num(v, ctx) {
   if (typeof v === 'number') return v;
@@ -2011,9 +2011,7 @@ const MOLANG_VARS = {};
 const state = {
   stack: [], sel: null,
   hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
-  openCells: new Set(),      // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
-  t: 0,                      // 最终值行的求值时间（秒）
-  sumCols: null              // 最后一次渲染的列，给 paintSum() 用
+  openCells: new Set()       // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
 };
 
 /* ---------- 撤销 / 重做 ----------
@@ -2039,7 +2037,7 @@ function histApply(s) {
   state.stack = s.stack.map(x => { x.it.enabled = x.on; return x.it; });
   state.hiddenBones = s.hidden.slice();
   assignColors();
-  render(); save();
+  renderFlip(); save();
   libSyncRows();
 }
 function syncHistUI() {
@@ -2117,11 +2115,12 @@ function applyWeight(base, v, w) {
   return base === 'scale' ? 1 + (v - 1) * w : v * w;
 }
 
-/* ---------- 最终通道值：按当前顺序、当前时间叠加 ----------
+/* ---------- 最终通道值：按当前顺序叠加（不代入时间） ----------
    规则和引擎一致：上面的行先算 → this 读到的是上面累计 → override 先把自己碰到的骨骼清零。
-   变量里只认 query.anim_time / life_time 这类「我们有值」的；variable.* 没喂值 → 该轴标成算不出。 */
+   这里不预设时间：随时间变化的轴标成 t（给不出单一数值），缺变量的轴显示 —，都不编数。 */
 const AX_NAMES = ['x', 'y', 'z'];
 const identVec = base => (base === 'scale' ? [1, 1, 1] : [0, 0, 0]);
+const TIME_Q = /^query\.(anim_time|life_time|delta_time|frame_alpha|modified_distance_moved)$/;
 
 function exprUsesThis(ch, ax) {
   const has = v => typeof v === 'string' && /\bthis\b/.test(v);
@@ -2129,34 +2128,37 @@ function exprUsesThis(ch, ax) {
   return ch.keys.some(k => has(k.post[ax]) || has(k.pre[ax]));
 }
 
-function computeFinal(t) {
+function computeFinal() {
+  /* 不喂任何变量、也不认任何 query：最终值只给「真能定下来」的常量 */
   const ctx = {
-    anim_time: t, life_time: t, delta_time: 1 / 60, frame_alpha: 0.5,
-    modified_distance_moved: 0, vars: {},      // 不喂 variable：未知就是未知，不编数
-    strictQuery: {                             // 这几个 query 我们真的能算
-      'query.anim_time': 1, 'query.life_time': 1, 'query.delta_time': 1,
-      'query.frame_alpha': 1, 'query.modified_distance_moved': 1
-    }
+    anim_time: 0, life_time: 0, delta_time: 0, frame_alpha: 0, modified_distance_moved: 0,
+    vars: {}, strictQuery: {}
   };
-  const out = new Map();                      // "bone|base" -> { v, bad, by, miss }
+  const out = new Map();                      // "bone|base" -> { v, bad, tv, by, miss }
   state.stack.forEach((it, si) => {
     if (!it.enabled) return;
     if (it.flags.override) {
       it.bones.forEach(b => CH_ORDER.forEach(base =>
-        out.set(b + '|' + base, { v: identVec(base), bad: [false, false, false], by: si })));
+        out.set(b + '|' + base, { v: identVec(base), bad: [false, false, false], tv: [false, false, false], by: si })));
     }
-    const lt = animLocalTime(it, t);
-    if (lt == null) return;                   // 还在 start_delay 里
     const w = it.blendWeight == null ? 1 : it.blendWeight;
     it.channels.forEach(ch => {
       const key = ch.bone + '|' + ch.base;
-      const prev = out.get(key) || { v: identVec(ch.base), bad: [false, false, false], by: -1 };
-      const r = sampleChannel(ch, lt, ctx, prev.v);
+      const prev = out.get(key) ||
+        { v: identVec(ch.base), bad: [false, false, false], tv: [false, false, false], by: -1 };
+      /* 关键帧通道本身就是随时间的函数，没有单一最终值 */
+      if (ch.kind === 'keyframed') {
+        out.set(key, { v: identVec(ch.base), bad: [true, true, true], tv: [true, true, true], by: si, miss: [] });
+        return;
+      }
+      const r = sampleChannel(ch, 0, ctx, prev.v);
       const v = [0, 1, 2].map(i => applyWeight(ch.base, r.v[i], w));
-      /* 这一轴算不算得出来：本身缺变量，或读了 this 而上面那格已经脏了（除非它把 this 抵消掉了） */
-      const bad = [0, 1, 2].map(i =>
-        !!r.bad[i] || (!axisCancels(ch, i) && exprUsesThis(ch, i) && prev.bad[i]));
-      out.set(key, { v, bad, by: si, miss: r.miss });
+      /* 这一轴：本身缺东西，或者它读了 this 而上面那格已经不确定（除非它把 this 抵消掉了） */
+      const readThis = [0, 1, 2].map(i => exprUsesThis(ch, i) && !axisCancels(ch, i));
+      const ownTv = [0, 1, 2].map(i => (r.missAxis[i] || []).some(n => TIME_Q.test(n)));
+      const bad = [0, 1, 2].map(i => !ownTv[i] && (!!r.bad[i] || (readThis[i] && prev.bad[i])));
+      const tv = [0, 1, 2].map(i => ownTv[i] || (readThis[i] && prev.tv[i]));
+      out.set(key, { v, bad, tv, by: si, miss: r.miss });
     });
   });
   return out;
@@ -2165,36 +2167,24 @@ function computeFinal(t) {
 function sumCellHTML(col, fin) {
   const f = fin.get(col.bone + '|' + col.base);
   if (!f) return '<td class="none" title="没有启用的行写这个通道">—</td>';
+  const lines = AX_NAMES.map((ax, i) => {
+    const cls = f.tv[i] ? 'tv' : f.bad[i] ? 'unk' : '';
+    const txt = f.tv[i] ? 't' : f.bad[i] ? '—' : fmtV(f.v[i], col.base);
+    return '<span' + (cls ? ' class="' + cls + '"' : '') + '><i>' + ax + '</i><span class="num">' + txt + '</span></span>';
+  }).join('');
   const tip = '最后写入：第 ' + (f.by + 1) + ' 行'
-    + (f.miss && f.miss.length ? '｜算不出：' + f.miss.join(', ') : '');
-  const lines = AX_NAMES.map((ax, i) =>
-    '<span' + (f.bad[i] ? ' class="unk"' : '') + '><i>' + ax + '</i>'
-    + '<span class="num">' + (f.bad[i] ? '—' : fmtV(f.v[i], col.base)) + '</span></span>').join('');
+    + (f.miss && f.miss.length ? '｜缺：' + f.miss.join(', ') : '')
+    + (f.tv.some(Boolean) ? '｜t = 随时间变化，没有单一数值' : '');
   return '<td class="cell sum" title="' + escapeHtml(tip) + '"><div class="vec">' + lines + '</div></td>';
 }
 
-function sumRowHTML(cols, fin, t, maxT) {
+function sumRowHTML(cols, fin) {
   return '<tr class="sumrow">'
-    + '<th class="sumh" scope="row" title="按当前顺序叠加后的最终值：this 读上面的累计，override 先清零；变量未知的轴显示 —">'
-    + '<div class="sum-top"><b>最终值</b><span class="tsum">' + t.toFixed(2) + 's</span></div>'
-    + '<input class="tslider" id="tslider" type="range" min="0" max="' + maxT + '" step="0.01" value="' + t
-    + '" aria-label="求值时间" title="拖动改变求值时间">'
+    + '<th class="sumh" scope="row" title="按当前顺序叠加、不代入时间：this 读上面的累计，override 先清零。t = 随时间变化，— = 缺变量，都不编数">'
+    + '<div class="sum-top"><b>最终值</b><span class="sum-sub">不代入时间</span></div>'
     + '</th>'
     + cols.map(c => sumCellHTML(c, fin)).join('')
     + '</tr>';
-}
-
-/* 只重画数值格，滑块所在的 th 不动（不然拖动时焦点会丢） */
-function paintSum() {
-  const tr = document.querySelector('.mtx tbody tr.sumrow');
-  const cols = state.sumCols;
-  if (!tr || !cols) return;
-  const fin = computeFinal(state.t);
-  tr.querySelectorAll('td').forEach((td, i) => {
-    if (cols[i]) td.outerHTML = sumCellHTML(cols[i], fin);
-  });
-  const lab = tr.querySelector('.tsum');
-  if (lab) lab.textContent = state.t.toFixed(2) + 's';
 }
 
 /* ---------- 矩阵：行 = 动画，列 = 骨骼 / 通道 ---------- */
@@ -2420,6 +2410,56 @@ function shortKey(k) {
   return String(k || '').replace(/^animation\./, '');
 }
 
+/* ---------- 换序动画（FLIP） ----------
+   重建前先记下每行的位置，重建后让行从旧位置滑到新位置；只动 transform，不碰布局 */
+function snapRows() {
+  const map = new Map();
+  document.querySelectorAll('#matrix tbody th.rowh[data-id]').forEach(th => {
+    const tr = th.closest('tr');
+    /* 上一轮动画可能因为标签页切走没落干净，先归零再量，否则会从错误的位置起跳 */
+    if (tr.style.transform) { tr.style.transition = 'none'; tr.style.transform = ''; }
+    map.set(th.dataset.id, tr.getBoundingClientRect().top);
+  });
+  return map;
+}
+
+function playRows(snap) {
+  if (!snap || !snap.size) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('#matrix tbody th.rowh[data-id]').forEach(th => {
+    const tr = th.closest('tr');
+    const old = snap.get(th.dataset.id);
+    if (old == null) return;
+    const dy = Math.round(old - tr.getBoundingClientRect().top);
+    if (!dy) return;
+    tr.style.transition = 'none';
+    tr.style.transform = 'translateY(' + dy + 'px)';
+    let started = false;
+    const start = () => {
+      if (started) return;
+      started = true;
+      tr.style.transition = 'transform 220ms cubic-bezier(.2,.8,.2,1)';
+      tr.style.transform = 'translateY(0)';
+      const done = () => {
+        tr.style.transition = '';
+        tr.style.transform = '';
+        tr.removeEventListener('transitionend', done);
+      };
+      tr.addEventListener('transitionend', done);
+      setTimeout(done, 340);
+    };
+    requestAnimationFrame(start);
+    setTimeout(start, 90);                     // 标签页在后台时 rAF 会被挂起，兜底直接到位
+  });
+}
+
+/* 会改变行顺序的地方都走这个：先量位置 → render → 播放 */
+function renderFlip() {
+  const snap = snapRows();
+  render();
+  playRows(snap);
+}
+
 function render() {
   const host = $('#matrix');
   const wrap = $('#mwrap');
@@ -2455,11 +2495,8 @@ function render() {
     return out;
   }).join('');
 
-  /* 最终值行：跟着当前顺序与时间算，贴在表格底部 */
-  const maxT = Math.max(0.5, ...state.stack.filter(i => i.enabled).map(i => i.length || 0));
-  state.t = clamp(state.t, 0, maxT);
-  state.sumCols = cols;
-  const sum = sumRowHTML(cols, computeFinal(state.t), state.t, maxT);
+  /* 最终值行：只跟顺序有关，不代入时间 */
+  const sum = sumRowHTML(cols, computeFinal());
 
   host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>' + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>';
   host.style.setProperty('--ncol', cols.length);
@@ -2549,7 +2586,7 @@ function moveRow(from, to) {
   histPush('调整顺序：' + shortKey(state.stack[from].animKey));
   const it = state.stack.splice(from, 1)[0];
   state.stack.splice(to, 0, it);
-  render(); save();
+  renderFlip(); save();
   const grip = document.querySelector('th.rowh[data-id="' + it.id + '"] .grip');
   if (grip) grip.focus();
   $('#stHint').textContent = '第 ' + (to + 1) + ' 行：' + shortKey(it.animKey);
@@ -2575,12 +2612,6 @@ function initMatrix() {
     if (!item) return;
     if (btn.dataset.act === 'toggle') toggleItem(item);
     else if (btn.dataset.act === 'del') removeItem(item);
-  });
-  /* 最终值行的时间滑块：只重画数值格，不整表重建 */
-  host.addEventListener('input', e => {
-    if (e.target.id !== 'tslider') return;
-    state.t = +e.target.value;
-    paintSum();
   });
   /* 键盘等价操作：聚焦行首抓手后 ↑ ↓ 换序，Home / End 到首末行；聚焦骨骼表头后 Enter / 空格隐藏 */
   host.addEventListener('keydown', e => {
@@ -2648,7 +2679,7 @@ function initDrag() {
     const moved = state.stack.splice(from, 1)[0];
     const idx = to > from ? to - 1 : to;
     state.stack.splice(idx, 0, moved);
-    render(); save();
+    renderFlip(); save();
     toast('顺序已更新 · <code>' + escapeHtml(shortKey(moved.animKey)) + '</code> 现在是第 ' + (idx + 1) + ' 行', 'good');
   };
 
@@ -3157,7 +3188,7 @@ function initDocs() {
       ['undo', '撤销 / 重做', 'Ctrl+Z 撤销，Ctrl+Y（或 Ctrl+Shift+Z）重做，顶栏两个箭头按钮也能点。顺序调整、启停、增删、收起骨骼列都能回退，最多 80 步；在输入框里仍然是浏览器自带的撤销，不会被抢。'],
       ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。只有<strong>引用了 this 的那一条轴</strong>会标蓝，行头另有 <code>this ×N</code> 计数。'],
       ['ban', '空与划掉', '两种「空」不是一回事：<code>·</code> = 这段动画有这根骨骼、但没写这个通道；<strong>斜纹格</strong> = 这段动画压根没有这根骨骼（行头的 <code>骨骼 4/8</code> 就是覆盖率，悬停能看具体漏了哪几根）。文字被划掉 = 被下面的行作废：<code>override</code> 是整根骨骼作废，<code>- this</code> 只作废它写成绝对值的那一条轴。'],
-      ['sigma', '最终值（底部那行）', '表格最下面一行是<strong>按当前顺序叠加后的结果</strong>：上面的行先算，<code>this</code> 读上面的累计，<code>override</code> 先把它碰到的骨骼清零。左边滑块改求值时间，拖一下整行数字跟着变。<strong>算不出的轴显示 <code>—</code></strong>——<code>variable.*</code> 这种只有游戏里才有值的量，这里不会瞎编一个数；鼠标停在格子上能看到缺了哪个符号、最后是哪一行写的。'],
+      ['sigma', '最终值（底部那行）', '表格最下面一行是<strong>按当前顺序叠加后的结果</strong>：上面的行先算，<code>this</code> 读上面的累计，<code>override</code> 先把它碰到的骨骼清零。<strong>它不代入时间</strong>——所以关键帧、以及用到 <code>query.anim_time</code> / <code>life_time</code> 的轴给不出单一数值，标成 <code>t</code>；用到 <code>variable.*</code> 这种只有游戏里才有值的量，标成 <code>—</code>，不瞎编数字。鼠标停在格子上能看到缺了哪个符号、最后是哪一行写的。'],
       ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。表里用琥珀色的行边 + 一条通栏说明带标出来，上面被抹掉的格子会划掉并标 <code>⟂</code>。'],
       ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。时间标在行首，帧数多于 4 个时先列前 3 帧 + <code>… 共 N 帧</code>，点格子底部的<strong>「展开」</strong>看全部。<code>pre</code> 与 <code>post</code> 不同时那一帧标成琥珀色（在这一点跳变）；<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
       ['molang', '表达式', '<code>variable.*</code> / <code>query.*</code> / <code>math.*</code> 都是照抄的原文，不代入数字。所以这张表既能当阅读器，也能拿来核对「我到底写没写对」。'],
