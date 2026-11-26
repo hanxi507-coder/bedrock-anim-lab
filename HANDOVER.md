@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 22:05（接手第十一次改动）** · `index.html` **3283 行 / 132,693 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 22:28（接手第十二次改动）** · `index.html` **3462 行 / 140,121 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        132693 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       173968 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        140121 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       157592 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -237,6 +237,7 @@ body（flex column，`overflow: hidden` —— 整页不滚，只有 .mwrap 滚�
     #colbar   已隐藏骨骼提示栏（默认 hidden：`已隐藏 N 根骨骼` + 骨骼 chip + 全部显示）· flex: none
     .mwrap > #matrix   矩阵表（.mtx）· flex: 1 1 auto; min-height: 0; overscroll-behavior: contain
       └ tbody 最后一行 tr.sumrow = 最终值（sticky bottom；th 里是「最终值 · 不代入时间」，没有时间控件）
+  body 末尾动态挂 .bonemgr（骨骼开关面板，点矩阵左上角「骨骼」按钮弹出）
     #empty    空状态（虚线卡片）· flex: 1 1 auto（空栈时 .mwrap 一起 hidden，否则会多出一块空边框）
 
 footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
@@ -298,6 +299,9 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 | `snapRows()` / `playRows(snap)` / `renderFlip()` | 换序动画：重建前记下每行 `top`，重建后把行从旧位移 `translateY` 拉回 0（220ms）；`renderFlip()` = 量 → render → 播。`prefers-reduced-motion` 时跳过，标签页在后台（rAF 被挂起）有 90ms 兜底 |
 | `render()` | 重建整张表 + 写 `--ncol`（列数）+ 切换 `#empty` / `#mwrap`（空栈时两个都 hidden）+ 调用 `renderColbar()` |
 | `renderColbar(allBones)` | 画「已隐藏 N 根骨骼」栏：只列当前数据里真的存在、且被隐藏的骨骼；每个是一个 `data-show` 按钮，右侧「全部显示」 |
+| `setBonesHidden(next, label)` | 骨骼显隐的唯一入口：一次改完 `state.hiddenBones` 再 `histPush` + `render` + `save`，批量操作不刷一堆历史 |
+| `soloBone(bone)` | Alt+点表头：只留这一根；已经是「只看它」就还原成全部显示 |
+| `toggleBoneMgr()` / `refreshBoneMgr()` / `closeBoneMgr()` / `placeBoneMgr()` | 骨骼面板：开/关、重画芯片、跟着按钮定位（`scroll` 捕获阶段 + `resize` 重新定位） |
 | `hideBone(bone)` / `showBone(bone)` | 隐藏 / 恢复单根骨骼的列，`render(); save()`，隐藏时 toast 提示去哪恢复 |
 | `updateStatus()` | 写状态栏（**只统计启用行的骨骼/通道，不受隐藏影响**） |
 
@@ -356,6 +360,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 字号：正文 13–14 / 辅助 11.5–12 / 微标 10.5；数字用等宽（`--mono`，JetBrains Mono 族）
 - 图标统一 `class="icon"`（16px，stroke 1.75），**不许用 emoji 当功能图标**
 - 动效 120–180ms（hover）/ 200–280ms（弹窗），并尊重 `prefers-reduced-motion`
+- 骨骼面板 `.bonemgr` 是 `position: fixed`（挂在 body 上，`render()` 重建表格不会把它冲掉），跟着角落按钮定位；`.bm-chip.on` 用实心点 + `--card` 底表示「显示中」
 - 最终值里的表达式用 `.sumv`（10.5px 等宽、`--text-2`，纯数字 `.isnum` 提亮）；太长走 `.clip` 的省略号 + 「展开」
 - 底部「最终值」行是 sticky（`bottom: 0`），底色 `--bg-2` 必须不透明；行头那格同时 sticky left（`z-index: 6`），不然横向滚动会错位
 - 换序动画只动 `transform`（FLIP），不动布局；`<tr>` 上的 transform 在 `border-collapse: separate` 下是可靠的
@@ -384,6 +389,8 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 | --- | --- |
 | 拖行首上下拖 | 行跟手走、其它行实时让位（手机 app 的手感）；松手才落库，`⟂` 与蓝标全程跟着重算 |
 | 点骨骼表头（`root` / `head` 那一格） | 收起该骨骼的全部通道列；矩阵上方出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。**只影响显示** |
+| `Alt` + 点骨骼表头 | 只看这一根（其余全收起），再 Alt + 点还原 |
+| 点左上角「骨骼」按钮 | 弹出面板列出所有骨骼，点芯片开/关（面板不关，可以连着点），底部「全部显示 / 全部隐藏」；点面板外面或 Esc 收起 |
 | 拖动 / ↑↓ 换序 | 落手后各行有 220ms 的滑动到位动画（`renderFlip()`），移动的那行会从旧位置滑到新位置 |
 | 点格子右下角的「展开」 | 把这一格的长表达式 / 全部关键帧摊开，按钮变成「收起」；再点收回。**只影响这一格**，不写 localStorage |
 | 点眼睛 | 该行停用/启用（停用行不参与 `this` 与 override 判定） |
@@ -468,11 +475,22 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 15. **长值折叠**：`humanoid.bob` 的左右臂 z 轴、`player.sleeping` 的 root.position/rotation 默认显示成一行 + 省略号，格子右下角有「展开」；点开后完整换行、按钮变「收起」；其余短值不受影响。
 16. **最终值**：底部一行左边是「最终值 · 不代入数字」，**没有时间控件**；默认 5 行时 `body.rotation` 是 `0 / 0 / 2`（sneaking 的 `0.5 - this` 被 athena 的 `-this` 抵掉），`head.rotation` 是 `30/0/0`（override 清零后 sleeping 的 `30-this`），`leftarm.rotation` 是 `10/0/-5`（`variable.tcos0` 被 `-this + 10` 消掉），`root.position` 显示成带 `query.body_y_rotation` 的长表达式并带「展开」。
 17. **换序手感**：按住行首往下拖，那一行会跟手走并盖住经过的行，其它行实时让位（190ms 滑动）；拖到第 4 行再松手，顺序真的落到第 4 位，不是只挪一格。松手后位置保持、刷新后还在。
-18. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
+18. **快速藏骨骼**：左上角「骨骼」按钮弹出 8 个芯片（当前 8/8），点 `head` → 芯片变暗、表头少一列、顶部出现「已隐藏 1 根骨骼」、面板不关且计数变 7/8；「全部显示」回到 8/8。`Alt` + 点 `body` 表头 → 只剩 body 一列，再 Alt + 点还原。
+19. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 22:25 · 快速隐藏骨骼（面板 + Alt 独显）
+
+- 矩阵左上角加了个「骨骼」小按钮（`.bm-btn`，有隐藏时变强调色），点开是 `.bonemgr` 浮层：所有骨骼排成芯片，点一下开/关，面板**不关**，可以连着点几根；底部「全部显示 / 全部隐藏」；点外面或 Esc 收起。
+- `Alt` + 点骨骼表头 = **只看这一根**，再 Alt + 点还原（`soloBone()`）。
+- 显隐统一走 `setBonesHidden(next, label)`：一次算完再 `histPush` + `render` + `save`，批量点芯片不会塞一堆撤销记录；原来的 `hideBone` / `showBone` 也改成调它。
+- 面板挂在 `body` 上（`position: fixed`），所以 `render()` 重建表格不会把它冲掉；`scroll`（捕获）和 `resize` 时跟着按钮重新定位。
+- 验证：8 芯片 → 点 head 变 7/8 + 表头 7 列 + 顶部恢复栏出现 "head"；全部显示回 8/8；Alt+点 body 只剩 1 列，再点回 8 列；全部隐藏不会崩（顶部恢复栏 8 个 chip 全在）。
+- `preview.png` 重拍（角落多了按钮）。
+
 
 ### 2026-11-26 21:58 · 拖拽改成「跟手 + 实时让位」
 

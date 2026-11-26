@@ -1119,6 +1119,81 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   border-right: 1px solid var(--border);
 }
 .mtx thead th.corner .dim { color: var(--border-2); }
+.mtx thead th.corner .corner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* 快速选骨骼：角落那个小按钮 + 弹出面板 */
+.bm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.bm-btn .icon { width: 11px; height: 11px; }
+.bm-btn:hover { color: var(--text); border-color: var(--border-2); }
+.bm-btn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+
+.bonemgr {
+  position: fixed;
+  z-index: 95;
+  width: 272px;
+  padding: 10px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+}
+.bm-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--text); }
+.bm-head b { font-weight: 600; }
+.bm-n { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+.bm-list { display: flex; flex-wrap: wrap; gap: 5px; max-height: 250px; overflow: auto; }
+.bm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.bm-chip .bm-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .45; }
+.bm-chip.on { color: var(--text); border-color: var(--border-2); background: var(--card); }
+.bm-chip.on .bm-dot { background: var(--accent); opacity: 1; }
+.bm-chip:hover { border-color: var(--border-2); }
+.bm-foot { display: flex; gap: 6px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border); }
+.bm-foot button {
+  flex: 1;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.bm-foot button:hover { color: var(--text); border-color: var(--border-2); background: var(--hover); }
 .mtx thead th.boneh {
   font-size: 11.5px;
   font-weight: 600;
@@ -1316,7 +1391,7 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   <div class="intro" id="hint">
     <p>
       <b>行 = 动画，列 = 骨骼 / 通道。</b>格子里的值就是 JSON 里写的原文，<code>variable</code> / <code>query</code> 不代入数字。
-      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起通道列；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文；表格最底下一行是<b>叠加后的最终值</b>（变量和 query 原样带着，不硬算成数字）。
+      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起通道列（左上角「骨骼」按钮能一次选多根）；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文；表格最底下一行是<b>叠加后的最终值</b>（变量和 query 原样带着，不硬算成数字）。
     </p>
     <p class="sub">
       <code>this</code> 读到的是"上面所有行在这个通道上的累计"，所以 <code>0.5 - this</code> 等于把该轴设成绝对值；
@@ -2477,7 +2552,11 @@ function render() {
 
   const { rows, groups, cols, bounds, allBones, shadow } = buildMatrix();
 
-  const head1 = '<th class="corner" rowspan="2" scope="col">动画 <span class="dim">/ 骨骼 →</span></th>'
+  const head1 = '<th class="corner" rowspan="2" scope="col">'
+    + '<span class="corner-row"><span class="corner-t">动画 <span class="dim">/ 骨骼 →</span></span>'
+    + '<button class="bm-btn' + (state.hiddenBones.length ? ' on' : '') + '" data-bonemgr type="button"'
+    + ' aria-haspopup="dialog" title="选择显示哪些骨骼 · Alt+点骨骼表头 = 只看这一根">'
+    + ic('eye') + '<span>骨骼</span></button></span></th>'
     + groups.map(g => '<th class="boneh" scope="colgroup" colspan="' + g.bases.length + '"'
       + ' data-bone="' + escapeHtml(g.bone) + '" tabindex="0" role="button"'
       + ' aria-label="隐藏 ' + escapeHtml(g.bone) + ' 的通道列"'
@@ -2505,6 +2584,7 @@ function render() {
 
   host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>' + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>';
   host.style.setProperty('--ncol', cols.length);
+  state.allBones = allBones;
   renderColbar(allBones);
   updateStatus();
 }
@@ -2523,21 +2603,87 @@ function renderColbar(allBones) {
     + '<button class="btn tiny show-all" id="colShowAll">全部显示</button>';
 }
 
+/* 统一的骨骼显隐入口：一次改完再 render，批量操作不会刷一堆历史 */
+function setBonesHidden(next, label) {
+  const cur = state.hiddenBones.join('|');
+  if (next.slice().sort().join('|') === cur.split('|').filter(Boolean).sort().join('|')) return;
+  histPush(label);
+  state.hiddenBones = next.slice();
+  render(); save();
+}
+
+/* Alt+点表头：只留这一根；已经是"只看它"就还原 */
+function soloBone(bone) {
+  const all = state.allBones || [];
+  const others = all.filter(b => b !== bone);
+  const solo = others.every(b => state.hiddenBones.indexOf(b) >= 0) && state.hiddenBones.indexOf(bone) < 0;
+  setBonesHidden(solo ? [] : others, solo ? '显示全部骨骼' : '只看 ' + bone);
+  toast(solo ? '已恢复显示全部骨骼' : '只看 <code>' + escapeHtml(bone) + '</code> · 矩阵上方可恢复');
+}
+
+let bmEl = null;
+
+function closeBoneMgr() {
+  if (!bmEl) return;
+  bmEl.remove();
+  bmEl = null;
+  window.removeEventListener('scroll', placeBoneMgr, true);
+  window.removeEventListener('resize', placeBoneMgr);
+}
+
+function placeBoneMgr() {
+  const btn = document.querySelector('[data-bonemgr]');
+  if (!bmEl || !btn) return;
+  const r = btn.getBoundingClientRect();
+  const w = bmEl.offsetWidth || 268;
+  bmEl.style.left = Math.round(Math.max(12, Math.min(r.left, window.innerWidth - w - 12))) + 'px';
+  bmEl.style.top = Math.round(Math.min(r.bottom + 6, window.innerHeight - 60)) + 'px';
+}
+
+function boneMgrHTML() {
+  const all = state.allBones || [];
+  const hidden = new Set(state.hiddenBones);
+  const shown = all.filter(b => !hidden.has(b)).length;
+  return '<div class="bm-head"><b>显示哪些骨骼</b><span class="bm-n">' + shown + '/' + all.length + '</span></div>'
+    + '<div class="bm-list">' + all.map(b =>
+      '<button class="bm-chip' + (hidden.has(b) ? '' : ' on') + '" data-bm-bone="' + escapeHtml(b) + '"'
+      + ' aria-pressed="' + (hidden.has(b) ? 'false' : 'true') + '">'
+      + '<span class="bm-dot"></span>' + escapeHtml(b) + '</button>').join('') + '</div>'
+    + '<div class="bm-foot"><button data-bm="all">全部显示</button><button data-bm="none">全部隐藏</button></div>';
+}
+
+function refreshBoneMgr() {
+  if (bmEl) bmEl.innerHTML = boneMgrHTML();
+  const btn = document.querySelector('[data-bonemgr]');
+  if (btn) btn.classList.toggle('on', state.hiddenBones.length > 0);
+}
+
+function toggleBoneMgr() {
+  if (bmEl) { closeBoneMgr(); return; }
+  const all = state.allBones || [];
+  if (!all.length) { toast('当前没有骨骼可以选'); return; }
+  bmEl = document.createElement('div');
+  bmEl.className = 'bonemgr';
+  bmEl.setAttribute('role', 'dialog');
+  bmEl.setAttribute('aria-label', '选择显示哪些骨骼');
+  bmEl.innerHTML = boneMgrHTML();
+  document.body.appendChild(bmEl);
+  placeBoneMgr();
+  window.addEventListener('scroll', placeBoneMgr, true);
+  window.addEventListener('resize', placeBoneMgr);
+}
+
 function hideBone(bone) {
   if (!bone || state.hiddenBones.indexOf(bone) >= 0) return;
-  histPush('收起 ' + bone + ' 的通道列');
-  state.hiddenBones.push(bone);
-  render(); save();
+  setBonesHidden(state.hiddenBones.concat([bone]), '收起 ' + bone + ' 的通道列');
+  refreshBoneMgr();
   toast('已隐藏 <code>' + escapeHtml(bone) + '</code> 的通道列 · 矩阵上方可恢复');
 }
 
 function showBone(bone) {
-  const n = state.hiddenBones.length;
-  const next = state.hiddenBones.filter(b => b !== bone);
-  if (n === next.length) return;
-  histPush('恢复 ' + bone + ' 的通道列');
-  state.hiddenBones = next;
-  render(); save();
+  if (state.hiddenBones.indexOf(bone) < 0) return;
+  setBonesHidden(state.hiddenBones.filter(b => b !== bone), '恢复 ' + bone + ' 的通道列');
+  refreshBoneMgr();
 }
 
 function initColbar() {
@@ -2605,10 +2751,16 @@ function initMatrix() {
   const host = $('#matrix');
   host.addEventListener('click', e => {
     if (Date.now() - lastDragAt < 300) return;
+    const bmg = e.target.closest('[data-bonemgr]');
+    if (bmg) { toggleBoneMgr(); return; }
     const xb = e.target.closest('[data-exp]');
     if (xb) { toggleCell(xb.dataset.exp); return; }
     const bh = e.target.closest('th.boneh[data-bone]');
-    if (bh) { hideBone(bh.dataset.bone); return; }
+    if (bh) {
+      if (e.altKey) soloBone(bh.dataset.bone);
+      else hideBone(bh.dataset.bone);
+      return;
+    }
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const th = btn.closest('th.rowh');
@@ -2618,6 +2770,32 @@ function initMatrix() {
     if (btn.dataset.act === 'toggle') toggleItem(item);
     else if (btn.dataset.act === 'del') removeItem(item);
   });
+  /* 骨骼面板：点芯片切换、全部显示/隐藏、点别处收起 */
+  document.addEventListener('click', e => {
+    if (!bmEl) return;
+    const chip = e.target.closest('[data-bm-bone]');
+    if (chip) {
+      const bone = chip.dataset.bmBone;
+      const next = state.hiddenBones.slice();
+      const i = next.indexOf(bone);
+      if (i >= 0) next.splice(i, 1); else next.push(bone);
+      setBonesHidden(next, (i >= 0 ? '恢复 ' : '收起 ') + bone + ' 的通道列');
+      refreshBoneMgr();
+      return;
+    }
+    const act = e.target.closest('[data-bm]');
+    if (act) {
+      if (act.dataset.bm === 'all') setBonesHidden([], '显示全部骨骼');
+      else setBonesHidden((state.allBones || []).slice(), '隐藏全部骨骼');
+      refreshBoneMgr();
+      return;
+    }
+    if (!e.target.closest('.bonemgr') && !e.target.closest('[data-bonemgr]')) closeBoneMgr();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && bmEl) closeBoneMgr();
+  });
+
   /* 键盘等价操作：聚焦行首抓手后 ↑ ↓ 换序，Home / End 到首末行；聚焦骨骼表头后 Enter / 空格隐藏 */
   host.addEventListener('keydown', e => {
     const bh = e.target.closest && e.target.closest('th.boneh[data-bone]');
@@ -3238,6 +3416,7 @@ function initDocs() {
       ['undo', '撤销 / 重做', 'Ctrl+Z 撤销，Ctrl+Y（或 Ctrl+Shift+Z）重做，顶栏两个箭头按钮也能点。顺序调整、启停、增删、收起骨骼列都能回退，最多 80 步；在输入框里仍然是浏览器自带的撤销，不会被抢。'],
       ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。只有<strong>引用了 this 的那一条轴</strong>会标蓝，行头另有 <code>this ×N</code> 计数。'],
       ['ban', '空与划掉', '两种「空」不是一回事：<code>·</code> = 这段动画有这根骨骼、但没写这个通道；<strong>斜纹格</strong> = 这段动画压根没有这根骨骼（行头的 <code>骨骼 4/8</code> 就是覆盖率，悬停能看具体漏了哪几根）。文字被划掉 = 被下面的行作废：<code>override</code> 是整根骨骼作废，<code>- this</code> 只作废它写成绝对值的那一条轴。'],
+      ['eye', '快速隐藏骨骼', '矩阵左上角那个 <b>骨骼</b> 按钮会把所有骨骼列出来，点一下开/关，底部还有「全部显示 / 全部隐藏」。也可以直接点骨骼表头隐藏它；<kbd>Alt</kbd> + 点 = <b>只看这一根</b>，再 Alt + 点一次还原。隐藏只影响显示，<code>this</code> 和 override 的判定照旧按全部骨骼算。'],
       ['sigma', '最终值（底部那行）', '表格最下面一行是把上面各行<strong>按顺序叠起来</strong>的结果：<code>this</code> 用上一行的结果代入，<code>override</code> 先把它碰到的骨骼清零。<strong>不代入数字</strong>——式子里有 <code>variable</code> / <code>query</code> 就原样留在表达式里，只做化简和抵消（<code>this + (-this)</code> 会直接消掉，<code>-this + 10</code> 最后就是 <code>10</code>）；关键帧这种随时间变的量记作 <code>t</code>。鼠标停在格子上能看到最后是哪一行写的。'],
       ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。表里用琥珀色的行边 + 一条通栏说明带标出来，上面被抹掉的格子会划掉并标 <code>⟂</code>。'],
       ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。时间标在行首，帧数多于 4 个时先列前 3 帧 + <code>… 共 N 帧</code>，点格子底部的<strong>「展开」</strong>看全部。<code>pre</code> 与 <code>post</code> 不同时那一帧标成琥珀色（在这一点跳变）；<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
