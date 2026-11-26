@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 16:42（接手第七次改动）** · `index.html` **3055 行 / 123,617 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 17:15（接手第八次改动）** · `index.html` **3202 行 / 130,617 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        123617 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       166392 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        130617 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       161755 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -181,13 +181,26 @@ return '<div class="keys">' + ks.map(line).join('')
 
 真实数据里 88% 的通道 ≤ 8 帧，但 bedrock-samples 里最长有 **52 帧**（`bee.animation.json` 的 `leftwing_bone / rotation`）。
 
-### 5.5 Molang 求值层（现状：**已实现但没接线**）
+### 5.5 Molang 求值层（现状：**接了「最终值」行，但只喂已知量**）
 
-`sampleChannel()` / `baseCtx()` / `animLocalTime()` / `applyWeight()` / `fmtV()` / `miss()` 这套求值代码还在，但 v4 矩阵渲染**不再调用它们**（只显示原文）。所以：
+`sampleChannel()` / `animLocalTime()` / `applyWeight()` / `fmtV()` / `miss()` 这套求值代码服务于表格底部那一行「最终值」（2026-11-26 17:15 起）。矩阵单元格仍然只显示原文，不求值。
 
-- 它们是死代码；不要以为改这里能影响界面；
-- 若将来要做“原文 / 求值”双列切换，可以直接接回来（`sampleChannel(ch, t, ctx, thisArr)` 已经支持逐轴 `thisV`）；
-- 若不做，建议删掉，减少误读。
+规则（`computeFinal(t)`，顺序与引擎一致）：
+
+1. 只遍历**启用**的行；每行用 `animLocalTime(item, t)` 换成动画内时间（loop / hold / once / start_delay）。
+2. 带 `override_previous_animation` 的行，先把**它碰到的骨骼**按通道清零（scale 清成 1）再往上叠。
+3. 每个通道采样时把当前累计值当 `this` 传进去（`sampleChannel(ch, lt, ctx, thisArr)`），所以 `-this`、`0.5 - this` 都是真按上面的累计算的。
+4. 乘上 `blend_weight`（`applyWeight`，scale 用 `1+(v-1)*w`）。
+
+**只喂确定有值的量**：`ctx.vars = {}`（不喂 `variable.*`），`strictQuery` 里只放 `query.anim_time / life_time / delta_time / frame_alpha / modified_distance_moved`。`QUERY` 表里那些「演示用假值」（`body_y_rotation = life_time*40`、`is_moving = 1` …）在严格模式下会被 `miss()` 掉。
+
+**逐轴标记算不出**：`sampleChannel()` 除了 `v` 还返回 `bad:[bool,bool,bool]`——某条轴引用了没值的符号（`missList` 变长）或算出 NaN 就置位。`computeFinal` 再往下传：
+
+```js
+bad[i] = r.bad[i] || (!axisCancels(ch, i) && exprUsesThis(ch, i) && prev.bad[i]);
+```
+
+也就是说：**上面那格是脏的，只有当下这行原样读 `this` 时才继续脏；如果它把 `this` 抵消掉了（`-this + 10`），结果就又是干净的**。这条规则让 `move(variable.tcos0)` → `athena(-this + 10)` 最后能显示 `10`，而不是一个 `—`。
 
 ---
 
@@ -209,6 +222,7 @@ body（flex column，`overflow: hidden` —— 整页不滚，只有 .mwrap 滚�
     #hint     两行说明（列/行是什么、this 与 override 怎么读、点骨骼表头可收起列）· flex: none
     #colbar   已隐藏骨骼提示栏（默认 hidden：`已隐藏 N 根骨骼` + 骨骼 chip + 全部显示）· flex: none
     .mwrap > #matrix   矩阵表（.mtx）· flex: 1 1 auto; min-height: 0; overscroll-behavior: contain
+      └ tbody 最后一行 tr.sumrow = 最终值（sticky bottom；th 里是 #tslider 时间滑块）
     #empty    空状态（虚线卡片）· flex: 1 1 auto（空栈时 .mwrap 一起 hidden，否则会多出一块空边框）
 
 footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
@@ -255,6 +269,10 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 | `buildMatrix()` | 汇总 → `{rows, groups, cols, bounds, allBones}`。`rows` = 动画行（顺序即 `state.stack`），`groups` = 骨骼分组（**已按 `state.hiddenBones` 过滤**），`cols` = 骨骼 × 通道列，`bounds` = 生效中（`ovOn`）的 override 行，`allBones` = 数据里出现的全部骨骼（给恢复栏用，不受隐藏影响） |
 | `boneRank()` / `BONE_RANK` / `CH_ORDER` | 列排序：`root, body, head, hat, cape, back, leftarm, rightarm, leftleg, rightleg, leftitem, rightitem` 优先，其余按字母；通道固定 `position, rotation, scale` |
 | `deadAt(bone, si, bounds)` | 下方是否存在生效中的 override 行且碰到该骨骼 → 该格划掉 |
+| `computeFinal(t)` | 按当前顺序算出每个通道的最终值（含 override 清零、this、blend_weight），返回 `Map<'bone|base', {v,bad,by,miss}>` |
+| `sumRowHTML(cols, fin, t, maxT)` / `sumCellHTML(col, fin)` | 底部「最终值」行：左侧是标题 + 时间滑块（`#tslider`），每列显示 x/y/z，算不出的轴渲染成 `—`（`.unk`） |
+| `paintSum()` | 拖滑块时只重画 `td`（`outerHTML`），不动滑块本身，避免焦点丢失 |
+| `exprUsesThis(ch, ax)` / `identVec(base)` | 判断某条轴是否读 `this`（用于脏值传播）/ 给通道的单位元（0 或 1） |
 | `axisCancels(ch, ax)` / `CANCEL_THIS` | 这一轴的值是不是「被 `- this` 写成绝对值」（系数 -1、没被乘除）→ 供 `shadow` 用 |
 | `fmtNum(n, base)` | 数字格式化（rotation / 时间 2 位，其余 3 位，去尾零） |
 | `litHTML(v, base)` | 单条轴渲染：字符串 → `<code class="expr">`，含 `this` 再加 `.th` 蓝色；数字 → `.num` |
@@ -323,6 +341,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 字号：正文 13–14 / 辅助 11.5–12 / 微标 10.5；数字用等宽（`--mono`，JetBrains Mono 族）
 - 图标统一 `class="icon"`（16px，stroke 1.75），**不许用 emoji 当功能图标**
 - 动效 120–180ms（hover）/ 200–280ms（弹窗），并尊重 `prefers-reduced-motion`
+- 底部「最终值」行是 sticky（`bottom: 0`），底色 `--bg-2` 必须不透明；行头那格同时 sticky left（`z-index: 6`），不然横向滚动会错位
 - 面板宽度：`.shell max-width: 1560px`（说明文字 `#hint` 单独 1040px）；矩阵列宽：标签列 232px，通道列 **208px**（2026-11-26 从 144 加宽，因为格子改成完整换行后 144 会把 `variable.tcos0 * -1.4` 这种常见表达式折成两行），`width: max(100%, calc(232px + var(--ncol) * 208px))`，窄屏横向滚动
 - 格子文字**不截断**：`.expr` 用 `white-space: pre-wrap` + `overflow-wrap: break-word`（`break-word` 而不是 `anywhere`，避免把 `query.body_y_rotation` 从中间劈开，除非单个 token 真的超过一行）；`.keys span` 同理
 - `table-layout: fixed`：列宽由第一行（`thead` 的 corner + 骨骼 colspan）决定，所以改列宽要动 `--ncol` 那个公式和 `.chanh` 的 `width` 两处
@@ -347,6 +366,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 | --- | --- |
 | 拖行首上下拖 | 换行序（**整块行头都能起手**，不一定要抓小圆点）；松手即重算 `⟂` 与蓝标 |
 | 点骨骼表头（`root` / `head` 那一格） | 收起该骨骼的全部通道列；矩阵上方出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。**只影响显示** |
+| 拖底部「最终值」左边的时间滑块 | 改求值时间（0 ~ 最长动画时长），整行数值实时跟着变；滑块值存在 `state.t`，不落盘 |
 | 点格子右下角的「展开」 | 把这一格的长表达式 / 全部关键帧摊开，按钮变成「收起」；再点收回。**只影响这一格**，不写 localStorage |
 | 点眼睛 | 该行停用/启用（停用行不参与 `this` 与 override 判定） |
 | 点垃圾桶 | 从栈里删除 |
@@ -428,11 +448,20 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 13. **拖拽范围**：在行头任意位置（动画名、序号、时间那一行）按住往上下拖 5px 以上就能换序，不必瞄准抓手；轻点动画名仍然只是开/关，不会误移。
 14. **横向滚动**：把矩阵横向滚到底，行头（尤其 `player.sleeping` 那条浅琥珀底）必须完全不透明，不能透出下面格子的文字。
 15. **长值折叠**：`humanoid.bob` 的左右臂 z 轴、`player.sleeping` 的 root.position/rotation 默认显示成一行 + 省略号，格子右下角有「展开」；点开后完整换行、按钮变「收起」；其余短值不受影响。
-16. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
+16. **最终值**：底部一行左边是滑块；默认 5 行时 `body.rotation` 是 `-0.5 / 0 / 2`（sneaking 的 0.5 被 athena 的 `-this` 翻成 -0.5，z 是 athena 的 `-this+2`），`head.rotation` 是 `30/0/0`（override 清零后 sleeping 的 `30-this`）；`root.position` 的 x/z 显示 `—`（用到 `query.body_y_rotation`，这里没有真值）。
+17. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 17:15 · 底部「最终值」行
+
+- 把停摆很久的求值链（`sampleChannel` / `animLocalTime` / `applyWeight`）接上：表格底部多一行 **sticky 的「最终值」**，按当前顺序叠加，`this`、`override`、`blend_weight` 都算进去；左边一个时间滑块（0 ~ 最长动画时长），拖一下整行数字实时变。
+- `sampleChannel()` 现在多返回 `bad:[bool,bool,bool]`（该轴是否引用了没值的符号），`computeFinal()` 再按「override 清零 → 直写覆盖 → 读 this 才继承脏值」的规则往下传。
+- **不编数**：`ctx.vars = {}`，`strictQuery` 只放 `anim_time / life_time / delta_time / frame_alpha / modified_distance_moved`；`QUERY` 里那些演示假值在严格模式下走 `miss()`。算不出的轴显示 `—`，悬停看缺了哪个符号、最后是哪一行写的。
+- 验证（探针，iframe 内直接调 `computeFinal`）：bob 的 z 在 t=0 → **5.73**、t=0.5 → **4.645**；`variable.tcos0` 单行 → `bad[0]=true`；`variable.tcos0` 后接 `-this + 10` → **10** 且 `bad=false`（未知量被抵消）。
+- `preview.png` 重拍。
 
 ### 2026-11-26 16:42 · 面板加宽 + 长值可展开
 
