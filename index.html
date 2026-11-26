@@ -515,6 +515,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: transparent;
 }
 .mtx td.cell { position: relative; }
+.mtx td.cell.dead { background: color-mix(in srgb, var(--amber) 6%, transparent); }
 .mtx td.cell.dead .vec,
 .mtx td.cell.dead .keys { opacity: .42; }
 .mtx td.cell.dead .vec span,
@@ -1296,20 +1297,10 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
 .mtx tbody tr.arow.off td { opacity: .5; }
 .mtx tbody tr.arow.off th.rowh { opacity: 1; }
 
-/* override 行头里的「从这里重算」说明（取代原来的通栏横带） */
-.rh-ov {
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  margin-top: 7px;
-  padding-top: 6px;
-  border-top: 1px dashed color-mix(in srgb, var(--amber) 45%, transparent);
-  font-size: 10.5px;
-  line-height: 1.35;
-  color: var(--text-2);
-}
-.rh-ov .icon { width: 11px; height: 11px; margin-top: 1px; flex: none; color: var(--amber); }
-.rh-ov b { color: var(--amber); font-weight: 600; font-family: var(--mono); }
+/* override 行：顶边一条琥珀线 = 上面的累计到这里切断（代替文字说明） */
+.mtx tbody tr.ovon > th,
+.mtx tbody tr.ovon > td { border-top: 2px solid var(--amber); }
+.mtx tbody tr.ovon > th { background: color-mix(in srgb, var(--amber) 9%, var(--card)); }
 
 .mtx td.none { text-align: center; color: var(--border-2); font-family: var(--mono); }
 
@@ -2366,7 +2357,11 @@ function chanHTML(ch, base, cuts, clipped) {
 
 function badgesFor(item) {
   const out = [];
-  if (item.flags.override) out.push('<span class="chip ov" title="override_previous_animation: true">' + ic('override') + 'override</span>');
+  if (item.flags.override) {
+    const bs = item.bones.join(', ');
+    out.push('<span class="chip ov" title="override_previous_animation: true —— 这一行会把它碰到的骨骼（' + escapeHtml(bs)
+      + '）上面的累积清掉，从自己开始重新叠">' + ic('override') + 'override</span>');
+  }
   const nThis = item.channels.filter(c => c.flags.thisRef).length;
   if (nThis) out.push('<span class="chip th" title="值里引用了 this（= 上面所有行的累计），等于把该通道写成绝对值">' + ic('thisMark') + 'this ×' + nThis + '</span>');
   const nMo = item.channels.filter(c => c.flags.molang).length;
@@ -2394,7 +2389,9 @@ function rowHead(r, allBones) {
     : '';
   return '<th class="rowh' + (r.ov ? ' ov' : '') + (it.enabled ? '' : ' off') + '" scope="row"'
     + ' data-id="' + it.id + '" data-si="' + r.si + '" tabindex="0"'
-    + ' aria-label="第 ' + (r.si + 1) + ' 行：' + escapeHtml(shortKey(it.animKey)) + '。拖动或按上下方向键调整顺序"'
+    + ' aria-label="第 ' + (r.si + 1) + ' 行：' + escapeHtml(shortKey(it.animKey))
+    + (r.ovOn ? '。override：清掉 ' + escapeHtml(it.bones.join('、')) + ' 上面的累积' : '')
+    + '。拖动或按上下方向键调整顺序"'
     + ' style="--c:' + (it.color || 'var(--border-2)') + '">'
     + '<div class="rh-top">'
     + '<span class="idx">' + String(r.si + 1).padStart(2, '0') + '</span>'
@@ -2411,11 +2408,6 @@ function rowHead(r, allBones) {
     + cover
     + (chips.length ? '<span class="tags">' + chips.join('') + '</span>' : '')
     + '</div>'
-    + (r.ovOn
-      ? '<div class="rh-ov" title="override_previous_animation：上面的行在 ' + escapeHtml(it.bones.join(', '))
-        + ' 上的累积到这一行作废，下面几行从这个新起点重新叠">'
-        + ic('override') + '<span><b>' + escapeHtml(it.bones.join(', ')) + '</b> 从这里重算</span></div>'
-      : '')
     + '</th>';
 }
 
@@ -2546,7 +2538,7 @@ function render() {
     '<th class="chanh" scope="col" data-bone="' + escapeHtml(g.bone) + '">' + b + '</th>').join('')).join('');
 
   const body = rows.map(r =>
-    '<tr class="arow' + (r.item.enabled ? '' : ' off') + '" data-id="' + r.item.id + '">' + rowHead(r, allBones)
+    '<tr class="arow' + (r.item.enabled ? '' : ' off') + (r.ovOn ? ' ovon' : '') + '" data-id="' + r.item.id + '">' + rowHead(r, allBones)
     + cols.map(c => cellHTML(r, c, bounds, shadow)).join('') + '</tr>').join('');
 
   /* 最终值行：只跟顺序有关，不代入时间 */
@@ -3384,10 +3376,10 @@ function initDocs() {
       ['eyeOff', '只看想看的骨骼', '点<strong>骨骼表头</strong>（<code>root</code> / <code>head</code> 那一格）可以把它下面的通道列收起来，腾出横向空间。收起来只是不显示，<strong>不影响 <code>this</code> 与 <code>override</code> 的判定</strong>；矩阵上方会出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。'],
       ['undo', '撤销 / 重做', 'Ctrl+Z 撤销，Ctrl+Y（或 Ctrl+Shift+Z）重做，顶栏两个箭头按钮也能点。顺序调整、启停、增删、收起骨骼列都能回退，最多 80 步；在输入框里仍然是浏览器自带的撤销，不会被抢。'],
       ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。只有<strong>引用了 this 的那一条轴</strong>会标蓝，行头另有 <code>this ×N</code> 计数。'],
-      ['ban', '空与划掉', '两种「空」不是一回事：<code>·</code> = 这段动画有这根骨骼、但没写这个通道；<strong>斜纹格</strong> = 这段动画压根没有这根骨骼（行头的 <code>骨骼 4/8</code> 就是覆盖率，悬停能看具体漏了哪几根）。文字被划掉 = 被下面的行作废：<code>override</code> 是整根骨骼作废，<code>- this</code> 只作废它写成绝对值的那一条轴。'],
+      ['ban', '空与划掉', '两种「空」不是一回事：<code>·</code> = 这段动画有这根骨骼、但没写这个通道；<strong>斜纹格</strong> = 这段动画压根没有这根骨骼（行头的 <code>骨骼 4/8</code> 就是覆盖率，悬停能看具体漏了哪几根）。文字被划掉、底色泛琥珀 = 被下面的行作废：<code>override</code> 是整根骨骼作废，<code>- this</code> 只作废它写成绝对值的那一条轴。'],
       ['eye', '快速隐藏骨骼', '矩阵左上角那个 <b>骨骼</b> 按钮会把所有骨骼列出来，点一下开/关，底部还有「全部显示 / 全部隐藏」。也可以直接点骨骼表头隐藏它；<kbd>Alt</kbd> + 点 = <b>只看这一根</b>，再 Alt + 点一次还原。隐藏只影响显示，<code>this</code> 和 override 的判定照旧按全部骨骼算。'],
       ['sigma', '最终值（底部那行）', '表格最下面一行是把上面各行<strong>按顺序叠起来</strong>的结果：<code>this</code> 用上一行的结果代入，<code>override</code> 先把它碰到的骨骼清零。<strong>不代入数字</strong>——式子里有 <code>variable</code> / <code>query</code> 就原样留在表达式里，只做化简和抵消（<code>this + (-this)</code> 会直接消掉，<code>-this + 10</code> 最后就是 <code>10</code>）；关键帧这种随时间变的量记作 <code>t</code>。鼠标停在格子上能看到最后是哪一行写的。'],
-      ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。这一行在行头里会写「<b>head, root</b> 从这里重算」（琥珀色虚线隔开），上面被抹掉的格子会划掉并标 <code>⟂</code>。'],
+      ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。这一行的<b>顶边有一条琥珀线</b>（= 上面的累计到这里切断），行头底色也偏琥珀；上面被它抹掉的格子会变成淡琥珀底 + 划掉 + 标 <code>⟂</code>，鼠标停在行头的 <code>override</code> 标记上能看到它具体清哪几根骨骼。'],
       ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。时间标在行首，帧数多于 4 个时先列前 3 帧 + <code>… 共 N 帧</code>，点格子底部的<strong>「展开」</strong>看全部。<code>pre</code> 与 <code>post</code> 不同时那一帧标成琥珀色（在这一点跳变）；<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
       ['molang', '表达式', '<code>variable.*</code> / <code>query.*</code> / <code>math.*</code> 都是照抄的原文，不代入数字。所以这张表既能当阅读器，也能拿来核对「我到底写没写对」。'],
       ['clock', '时长与循环', '行头显示 <code>animation_length</code>（缺省取最后一帧）和 <code>loop</code> 模式：<code>loop</code> 循环 / <code>hold</code> 停在末帧 / <code>once</code> 播完即止。'],

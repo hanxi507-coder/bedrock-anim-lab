@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 23:30（接手第十四次改动）** · `index.html` **3431 行 / 139,315 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 23:45（接手第十五次改动）** · `index.html` **3423 行 / 139,262 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -39,7 +39,7 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 | 标记 | 含义 |
 | --- | --- |
 | 蓝色表达式 | 这一条轴（x/y/z 单条）的原文里出现 `this` |
-| 行头的琥珀说明块 | 这一行带 `override_previous_animation: true`，它把上面这些行在它碰到的骨骼上全抹掉；行头写「head, root 从这里重算」。**该行被眼睛停用时这块不出现**（见 §5.2） |
+| 琥珀色顶边 | 这一行带 `override_previous_animation: true`：它碰到的骨骼，上面的累计到这里切断（行顶一条 2px 琥珀线 + 行头琥珀底色）。**该行被眼睛停用时线不出现**（见 §5.2） |
 | 格子划掉 + `⟂` | 这一格被下面的某一行 override 抹掉了（`⟂` 在格子**右下角**，不是右上角） |
 | 单轴划掉 + 右侧小 `⟂` | 这一条轴被下面的 `- this` 写成了绝对值，上面的累积不算了（三条轴都这样时按整格划掉，只画一个 `⟂`） |
 | 收起的骨骼列 | 点骨骼表头可把该骨骼的通道列收起来，矩阵上方出现「已隐藏 N 根骨骼」+ 恢复按钮；**只影响显示，不参与判定** |
@@ -78,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        139315 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       178289 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        139262 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       177992 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -151,7 +151,8 @@ D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
 这一行带 `true` 时，它先把自己碰到的骨骼清成 `0/0/0`（scale 是 `1/1/1`），再写自己的值 —— 也就是**把上面所有行在这些骨骼上的累积全抹掉**。
 
 在矩阵里表现为：
-- 该行的**行头**里多一块琥珀色说明：`⟲ head, root 从这里重算`（`title` 里保留原句「上面的行在 head, root 上的累积到这一行作废，下面几行从这个新起点重新叠」）。2026-11-26 23:20 之前是一条通栏横带，太占高度、也把表格切断，改成并进卡片；
+- 这一行**顶边一条 2px 琥珀线**（`tr.ovon > th/td` 的 `border-top`）+ 行头琥珀底色，表示「上面的累计到这里切断」；被它抹掉的格子是**淡琥珀底 + 划掉 + ⟂**，和那条线同色，形成一块「作废区」。一个字都不用写。
+  - 23:20 之前是一条通栏文字横带，嫌占高度；23:30 改成行头里一句「head, root 从这里重算」，用户嫌多余；23:40 彻底改成纯视觉。骨名不再显示在行里，改到行头 `override` 芯片的 `title`（`badgesFor()`）和 `th` 的 `aria-label` 里；
 - 被抹掉的格子（`deadAt()`）加 `.dead`，文字划掉（透明度 .42）+ **右下角** `⟂`。
 
 **停用（点眼睛）时不生效**：横带不出现，上方格子也不再划掉。实现上 `buildMatrix()` 给每行算了两个位：
@@ -360,7 +361,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 字号：正文 13–14 / 辅助 11.5–12 / 微标 10.5；数字用等宽（`--mono`，JetBrains Mono 族）
 - 图标统一 `class="icon"`（16px，stroke 1.75），**不许用 emoji 当功能图标**
 - 动效 120–180ms（hover）/ 200–280ms（弹窗），并尊重 `prefers-reduced-motion`
-- override 行的说明块 `.rh-ov` 在行头里（虚线分隔 + 琥珀色骨名），不再是通栏横带
+- override 行是 `tr.ovon`：`> th/td` 一条 2px 琥珀 `border-top`，行头底色 `color-mix(amber 9%, card)`；被作废的格子 `.cell.dead` 用 `color-mix(amber 6%, transparent)` 打底
 - 骨骼面板 `.bonemgr` 是 `position: fixed`（挂在 body 上，`render()` 重建表格不会把它冲掉），跟着角落按钮定位；`.bm-chip.on` 用实心点 + `--card` 底表示「显示中」
 - 最终值里的表达式用 `.sumv`（10.5px 等宽、`--text-2`，纯数字 `.isnum` 提亮）；太长走 `.clip` 的省略号 + 「展开」
 - 底部「最终值」行是 sticky（`bottom: 0`），底色 `--bg-2` 必须不透明；行头那格同时 sticky left（`z-index: 6`），不然横向滚动会错位
@@ -461,7 +462,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 1. 默认 5 行（move / bob / sneaking / athena_pose / sleeping），行首可拖动，拖完 `⟂` 与蓝标跟着变；
 2. `sneaking` 的 `body.rotation` 的 **x** 是蓝的，y/z 不是；`athena_pose` 整行都是蓝的；
-3. `player.sleeping` 的行头里有「head, root 从这里重算」；`sneaking`、`athena_pose` 在 `head` 上的格子被划掉并带 `⟂`（它们写了 `head`，而 `sleeping` 会清 `head`、`root`）；
+3. `player.sleeping` 的顶边有琥珀线、行头偏琥珀；它上面 `sneaking` 的 head 格子是淡琥珀底 + 划掉 + `⟂`；`sneaking`、`athena_pose` 在 `head` 上的格子被划掉并带 `⟂`（它们写了 `head`，而 `sleeping` 会清 `head`、`root`）；
 4. 示例库勾选一条 → 关闭弹窗前后都能在矩阵里看到它（且是启用状态）；
 5. 导入 `C:\Users\DUANQIUYI\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈；
 6. **点掉 `player.sleeping` 的眼睛** → 琥珀带消失、`sneaking`/`athena_pose` 的 `head` 格子恢复成正常值（`⟂` 清零，状态栏变成「5 个动画（4 启用）· 7 根骨骼 · 10 个通道」）；再点亮 → 全部复原。这条是 2026-11-26 修的 bug 的回归用例。
@@ -482,6 +483,19 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 23:40 · override 改成纯视觉（去掉文字）
+
+- 用户反馈：「head, root 从这里重算」这句话多余，希望**直观**体现 override。
+- 现在的视觉语言：**琥珀 = 切断**。
+  - override 行（`tr.ovon`）顶边一条 **2px 琥珀线**（`border-top`），行头底色也偏琥珀（9%）—— 一眼看到「累计到这里断」；
+  - 它抹掉的格子（`.cell.dead`）加 **6% 琥珀底**，配原有的划掉 + `⟂`，整块连成一片「作废区」，和那条线颜色呼应；
+  - 骨名不写在行里了，挪到行头 `override` 芯片的 `title`（`badgesFor()`）和 `th` 的 `aria-label`，需要时悬停/读屏能拿到完整语义。
+- 删掉 `.rh-ov` 的 markup 和 CSS；`rowHead()` 不再为 override 拼字符串。
+- `badgesFor()` 的 override 芯片提示改成带骨名的完整句：「这一行会把它碰到的骨骼（head, root）上面的累积清掉，从自己开始重新叠」。
+- 验证：`sleeping` 行顶边有琥珀线、行头偏琥珀；`sneaking` 的 head 格子是淡琥珀底 + 划掉；最终值不变。
+- `preview.png` 重拍。
+
 
 ### 2026-11-26 23:20 · override 说明并进行头（去掉通栏横带）
 
