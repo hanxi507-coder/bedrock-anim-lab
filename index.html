@@ -606,9 +606,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 10px;
   color: var(--text-3);
 }
-.mtx tbody tr.sumrow .num { color: var(--text); }
-.vec span.unk .num { color: var(--text-3); }
-.vec span.tv .num { color: var(--text-2); font-style: italic; }
+.mtx tbody tr.sumrow .sumv {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+  min-width: 0;
+}
+.mtx tbody tr.sumrow .sumv.isnum { color: var(--text); }
+.mtx tbody tr.sumrow .xbtn { font-size: 9.5px; }
+.mtx td.cell.clip .sumv { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .vec { display: flex; flex-direction: column; gap: 2px; }
 .vec span {
@@ -1334,7 +1341,7 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   <div class="intro" id="hint">
     <p>
       <b>行 = 动画，列 = 骨骼 / 通道。</b>格子里的值就是 JSON 里写的原文，<code>variable</code> / <code>query</code> 不代入数字。
-      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起通道列；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文；表格最底下一行是<b>叠加后的最终值</b>（只跟顺序有关，不代入时间）。
+      上下拖动行首的抓手改顺序 —— <b>上面的行先算</b>。点骨骼表头可以收起通道列；长表达式默认收成一行，点格子里的<b>「展开」</b>看全文；表格最底下一行是<b>叠加后的最终值</b>（变量和 query 原样带着，不硬算成数字）。
     </p>
     <p class="sub">
       <code>this</code> 读到的是"上面所有行在这个通道上的累计"，所以 <code>0.5 - this</code> 等于把该轴设成绝对值；
@@ -1697,9 +1704,8 @@ const Molang = (() => {
     const v = evalNode(compile(String(src))(), ctx);
     return isFinite(v) ? v : NaN;
   }
-  return { evalMolang, compile };
+  return { evalMolang, compile, evalAst: evalNode, FN };
 })();
-const evalMolang = Molang.evalMolang;
 
 /* ---------------- 通道与关键帧 ---------------- */
 const BASES = {
@@ -1750,10 +1756,6 @@ function parseKeys(raw) {
   return { kind: 'keyframed', keys, jump, catmull, molang, thisRef };
 }
 
-function hermite(p0, p1, p2, p3, u) {
-  const u2 = u * u, u3 = u2 * u;
-  return 0.5 * ((2 * p1) + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
-}
 
 function makeChannel(bone, base, raw, rawKey, legacyKey) {
   const pk = parseKeys(raw);
@@ -1776,86 +1778,6 @@ function makeChannel(bone, base, raw, rawKey, legacyKey) {
 
 /* 采样一个通道，返回 {v:[x,y,z], unresolved, miss[]}
    thisArr = 该通道在「这张卡之前」的累计值，供表达式里的 this / -this 读取 */
-function sampleChannel(ch, localT, ctx, thisArr) {
-  const missByAxis = [[], [], []];              // 逐轴记「缺了哪些符号」，最终值面板要知道是哪一轴缺
-  const axisCtx = (i) => ({
-    anim_time: ctx.anim_time, life_time: ctx.life_time, delta_time: ctx.delta_time,
-    frame_alpha: ctx.frame_alpha, modified_distance_moved: ctx.modified_distance_moved,
-    vars: ctx.vars, thisV: thisArr ? thisArr[i] : 0, miss: missByAxis[i], strictQuery: ctx.strictQuery
-  });
-  const ev = (val, out, i) => {
-    if (typeof val === 'number') { out[i] = val; return 0; }
-    if (typeof val === 'string') {
-      const before = missByAxis[i].length;
-      const n = evalMolang(val, axisCtx(i));
-      const ok = isFinite(n) && missByAxis[i].length === before;   // 引用了没喂值的变量也算「算不出」
-      out[i] = isFinite(n) ? n : 0;
-      if (!ok) badArr[i] = true;
-      return ok ? 0 : 1;
-    }
-    const f = Number(val);
-    out[i] = isFinite(f) ? f : 0;
-    if (!isFinite(f)) badArr[i] = true;
-    return isFinite(f) ? 0 : 1;
-  };
-  const out = [0, 0, 0];
-  const badArr = [false, false, false];
-  let bad = 0;
-  if (ch.kind === 'static') {
-    for (let i = 0; i < 3; i++) bad += ev(ch.value[i], out, i);
-    return pack();
-  }
-  const ks = ch.keys;
-  if (!ks.length) return { v: out, bad: [true, true, true], missAxis: [[], [], []], unresolved: 3, miss: [] };
-  let start, end, u = 0, mode = 'linear';
-  if (localT <= ks[0].t) { start = end = ks[0].pre; }
-  else if (localT >= ks[ks.length - 1].t) { start = end = ks[ks.length - 1].post; }
-  else {
-    let i = 0;
-    while (i < ks.length - 2 && ks[i + 1].t <= localT) i++;
-    const a = ks[i], b = ks[i + 1];
-    start = a.post; end = b.pre; mode = b.mode;
-    u = (localT - a.t) / Math.max(1e-6, b.t - a.t);
-  }
-  for (let i2 = 0; i2 < 3; i2++) {
-    let val;
-    if (mode === 'catmullrom' && start !== end) {
-      const idx = ks.findIndex(k => k.t >= localT);
-      const p0 = (ks[idx - 2] || ks[idx - 1] || ks[idx]).post;
-      const p1 = start, p2 = end;
-      const p3 = (ks[idx + 1] || ks[idx] || ks[ks.length - 1]).pre;
-      const c = axisCtx(i2);
-      const before = missByAxis[i2].length;
-      val = hermite(num(p0[i2], c), num(p1[i2], c), num(p2[i2], c), num(p3[i2], c), u);
-      out[i2] = isFinite(val) ? val : 0;
-      if (!isFinite(val) || missByAxis[i2].length > before) badArr[i2] = true;
-    } else if (start === end) {
-      bad += ev(start[i2], out, i2);
-    } else {
-      const c = axisCtx(i2);
-      const before = missByAxis[i2].length;
-      const a = num(start[i2], c), b = num(end[i2], c);
-      out[i2] = isFinite(a) && isFinite(b) ? lerp(a, b, u) : (isFinite(a) ? a : 0);
-      if (!isFinite(a) || !isFinite(b) || missByAxis[i2].length > before) { bad++; badArr[i2] = true; }
-    }
-  }
-  return pack();
-  function pack() {
-    const all = [].concat.apply([], missByAxis);
-    if (all.length) bad = Math.max(bad, 1);
-    return {
-      v: out, bad: badArr, unresolved: bad,
-      missAxis: missByAxis.map(a => a.slice(0, 3)),
-      miss: [].concat.apply([], missByAxis).slice(0, 4)
-    };
-  }
-}
-function num(v, ctx) {
-  if (typeof v === 'number') return v;
-  if (typeof v === 'string') return evalMolang(v, ctx);
-  const f = Number(v);
-  return isFinite(f) ? f : NaN;
-}
 const containsMolang = v => typeof v === 'string' || (Array.isArray(v) && v.some(x => typeof x === 'string'));
 
 /* ---------------- 动画条目 ---------------- */
@@ -2007,7 +1929,6 @@ const SAMPLES = [
 /* ============================================================
    P3 · 状态 / 矩阵渲染 / 拖拽
    ============================================================ */
-const MOLANG_VARS = {};
 const state = {
   stack: [], sel: null,
   hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
@@ -2085,43 +2006,147 @@ function initHistory() {
   syncHistUI();
 }
 
-function baseCtx(animTime, lifeTime) {
-  const dist = lifeTime * 4.317;
-  const atk = (lifeTime * 1.2) % 1;
-  // 真实资源包里这些 variable 由 controller 写；这里用能看懂的近似值撑起来
-  MOLANG_VARS.tcos0 = Math.cos(dist * 38.17) * 40;
-  MOLANG_VARS.attack_time = atk < 0.5 ? atk * 2 : (1 - atk) * 2;
-  MOLANG_VARS.charge_amount = 0;
-  MOLANG_VARS.is_brandishing_spear = 0;
-  MOLANG_VARS.is_holding_spyglass = 0;
-  MOLANG_VARS.is_sneaking = 0;
-  return {
-    anim_time: animTime, life_time: lifeTime, delta_time: 1 / 60, frame_alpha: 0.5,
-    modified_distance_moved: dist, vars: MOLANG_VARS
-  };
-}
 
 /* 循环 / 保持 / 单次 → 动画内本地时间；还没到 start_delay 返回 null */
-function animLocalTime(item, t) {
-  const lt = t - (item.startDelay || 0);
-  if (lt < 0) return null;
-  const len = item.length > 0 ? item.length : 1;
-  if (item.loop === true) return lt % len;
-  if (item.loop === 'hold') return Math.min(lt, len);
-  return lt;
-}
 
-function applyWeight(base, v, w) {
-  return base === 'scale' ? 1 + (v - 1) * w : v * w;
-}
 
-/* ---------- 最终通道值：按当前顺序叠加（不代入时间） ----------
+/* ---------- 最终通道值：按当前顺序叠加，符号原样带着 ----------
    规则和引擎一致：上面的行先算 → this 读到的是上面累计 → override 先把自己碰到的骨骼清零。
-   这里不预设时间：随时间变化的轴标成 t（给不出单一数值），缺变量的轴显示 —，都不编数。 */
+   和「代入数字」不同：式子里的 variable.* / query.* 不强行算成 0，而是一路带下来，顺便化简、抵消
+   （this + (-this) 直接没了）。关键帧那种随时间变的量记作 t。 */
 const AX_NAMES = ['x', 'y', 'z'];
-const identVec = base => (base === 'scale' ? [1, 1, 1] : [0, 0, 0]);
-const TIME_Q = /^query\.(anim_time|life_time|delta_time|frame_alpha|modified_distance_moved)$/;
+const TV_NODE = { k: 'tv' };                 // 「随时间变化」的占位符，抵消时靠同一个引用比对
+const astNum = v => ({ k: 'num', v });
+const astBin = (op, a, b) => ({ k: 'bin', op, a, b });
+const astNeg = a => ({ k: 'neg', a });
 
+function astFrom(v) {
+  if (typeof v === 'number') return astNum(v);
+  if (typeof v !== 'string') { const n = Number(v); return astNum(isFinite(n) ? n : 0); }
+  return Molang.compile(v)();
+}
+
+function astSub(n, rep) {
+  switch (n.k) {
+    case 'num': case 'tv': return n;
+    case 'id': return n.name === 'this' ? rep : n;
+    case 'neg': case 'not': return { k: n.k, a: astSub(n.a, rep) };
+    case 'bin': return { k: 'bin', op: n.op, a: astSub(n.a, rep), b: astSub(n.b, rep) };
+    case 'call': return { k: 'call', name: n.name, args: n.args.map(a => astSub(a, rep)) };
+  }
+  return n;
+}
+
+function astIsConst(n) {
+  switch (n.k) {
+    case 'num': return true;
+    case 'tv': return false;
+    case 'id': return n.name === 'math.pi';
+    case 'neg': case 'not': return astIsConst(n.a);
+    case 'bin': return astIsConst(n.a) && astIsConst(n.b);
+    case 'call': return n.name !== 'math.random' && !!Molang.FN[n.name] && n.args.every(astIsConst);
+  }
+  return false;
+}
+
+function astFold(n) {
+  switch (n.k) {
+    case 'num': case 'tv': case 'id': return n;
+    case 'neg': {
+      const a = astFold(n.a);
+      return a.k === 'num' ? astNum(-a.v) : astNeg(a);
+    }
+    case 'not': {
+      const a = astFold(n.a);
+      return a.k === 'num' ? astNum(a.v ? 0 : 1) : { k: 'not', a };
+    }
+    case 'bin': {
+      const node = { k: 'bin', op: n.op, a: astFold(n.a), b: astFold(n.b) };
+      return astIsConst(node) ? astNum(Molang.evalAst(node, { vars: {} })) : node;
+    }
+    case 'call': {
+      const node = { k: 'call', name: n.name, args: n.args.map(astFold) };
+      return astIsConst(node) ? astNum(Molang.evalAst(node, { vars: {} })) : node;
+    }
+  }
+  return n;
+}
+
+const sameAst = (a, b) => a === b || (a.k === b.k && JSON.stringify(a) === JSON.stringify(b));
+
+function flatSum(n, sign, out) {
+  if (n.k === 'bin' && (n.op === '+' || n.op === '-')) {
+    flatSum(n.a, sign, out);
+    flatSum(n.b, n.op === '+' ? sign : -sign, out);
+  } else if (n.k === 'neg') {
+    flatSum(n.a, -sign, out);
+  } else {
+    out.push({ s: sign, n });
+  }
+}
+
+/* prev + row；顺手把「同一个式子一正一负」的两项消掉（-this 就是整个抵消上一项） */
+function astSum(prev, row) {
+  const terms = [];
+  flatSum(prev, 1, terms);
+  flatSum(row, 1, terms);
+  let num = 0, numAt = -1;
+  const rest = [];
+  terms.forEach(t => {
+    if (t.n.k === 'num') {
+      if (numAt < 0) numAt = rest.length;
+      num += t.s * t.n.v;
+    } else rest.push(t);
+  });
+  for (let i = 0; i < rest.length; i++) {
+    if (!rest[i]) continue;
+    for (let j = i + 1; j < rest.length; j++) {
+      if (rest[j] && rest[i].s === -rest[j].s && sameAst(rest[i].n, rest[j].n)) { rest[i] = null; rest[j] = null; break; }
+    }
+  }
+  const list = rest.filter(Boolean);
+  if (num !== 0 || !list.length) {
+    const at = numAt < 0 ? list.length : Math.min(numAt, list.length);
+    list.splice(at, 0, { s: num > 0 ? 1 : -1, n: astNum(Math.abs(num)) });
+  }
+  if (!list.length) return astNum(0);
+  let node = null;
+  list.forEach(t => {
+    if (!node) node = t.s > 0 ? t.n : astNeg(t.n);
+    else node = t.s > 0 ? astBin('+', node, t.n) : astBin('-', node, t.n);
+  });
+  return astFold(node);
+}
+
+const APREC = { '||': 1, '&&': 2, '==': 3, '!=': 3, '<': 4, '>': 4, '<=': 4, '>=': 4, '+': 5, '-': 5, '*': 6, '/': 6, '%': 6 };
+function numText(v) {
+  if (!isFinite(v)) return '?';
+  if (Number.isInteger(v)) return String(v);
+  return String(+v.toFixed(4));
+}
+function astPrint(n, min) {
+  min = min || 0;
+  const wrap = (s, p) => (p < min ? '(' + s + ')' : s);
+  switch (n.k) {
+    case 'num': return numText(n.v);
+    case 'tv': return 't';
+    case 'id': return n.name;
+    case 'neg': return wrap('-' + astPrint(n.a, 7), 7);
+    case 'not': return wrap('!' + astPrint(n.a, 7), 7);
+    case 'call': return n.name + '(' + n.args.map(a => astPrint(a, 0)).join(', ') + ')';
+    case 'bin': {
+      const p = APREC[n.op] || 5;
+      return wrap(astPrint(n.a, p) + ' ' + n.op + ' ' + astPrint(n.b, p + 1), p);
+    }
+  }
+  return '?';
+}
+function astText(n, base) {
+  if (n.k === 'num') return isFinite(n.v) ? fmtV(n.v, base) : '?';
+  return astPrint(n);
+}
+
+/* 某条轴上有没有读 this —— 有才需要把上一轮的式子代进去 */
 function exprUsesThis(ch, ax) {
   const has = v => typeof v === 'string' && /\bthis\b/.test(v);
   if (ch.kind === 'static') return has(ch.value[ax]);
@@ -2129,59 +2154,67 @@ function exprUsesThis(ch, ax) {
 }
 
 function computeFinal() {
-  /* 不喂任何变量、也不认任何 query：最终值只给「真能定下来」的常量 */
-  const ctx = {
-    anim_time: 0, life_time: 0, delta_time: 0, frame_alpha: 0, modified_distance_moved: 0,
-    vars: {}, strictQuery: {}
-  };
-  const out = new Map();                      // "bone|base" -> { v, bad, tv, by, miss }
+  const ident = base => (base === 'scale' ? 1 : 0);
+  const out = new Map();                      // "bone|base" -> { e:[AST,AST,AST], by }
   state.stack.forEach((it, si) => {
     if (!it.enabled) return;
     if (it.flags.override) {
-      it.bones.forEach(b => CH_ORDER.forEach(base =>
-        out.set(b + '|' + base, { v: identVec(base), bad: [false, false, false], tv: [false, false, false], by: si })));
+      it.bones.forEach(b => CH_ORDER.forEach(base => {
+        const v = ident(base);
+        out.set(b + '|' + base, { e: [astNum(v), astNum(v), astNum(v)], by: si });
+      }));
     }
     const w = it.blendWeight == null ? 1 : it.blendWeight;
     it.channels.forEach(ch => {
       const key = ch.bone + '|' + ch.base;
-      const prev = out.get(key) ||
-        { v: identVec(ch.base), bad: [false, false, false], tv: [false, false, false], by: -1 };
-      /* 关键帧通道本身就是随时间的函数，没有单一最终值 */
+      const zero = ident(ch.base);
+      const prev = out.get(key) || { e: [astNum(zero), astNum(zero), astNum(zero)], by: -1 };
       if (ch.kind === 'keyframed') {
-        out.set(key, { v: identVec(ch.base), bad: [true, true, true], tv: [true, true, true], by: si, miss: [] });
+        /* 关键帧没有单一值，累积结果就是一个随时间变的量 */
+        out.set(key, { e: [TV_NODE, TV_NODE, TV_NODE], by: si });
         return;
       }
-      const r = sampleChannel(ch, 0, ctx, prev.v);
-      const v = [0, 1, 2].map(i => applyWeight(ch.base, r.v[i], w));
-      /* 这一轴：本身缺东西，或者它读了 this 而上面那格已经不确定（除非它把 this 抵消掉了） */
-      const readThis = [0, 1, 2].map(i => exprUsesThis(ch, i) && !axisCancels(ch, i));
-      const ownTv = [0, 1, 2].map(i => (r.missAxis[i] || []).some(n => TIME_Q.test(n)));
-      const bad = [0, 1, 2].map(i => !ownTv[i] && (!!r.bad[i] || (readThis[i] && prev.bad[i])));
-      const tv = [0, 1, 2].map(i => ownTv[i] || (readThis[i] && prev.tv[i]));
-      out.set(key, { v, bad, tv, by: si, miss: r.miss });
+      const e = [0, 1, 2].map(i => {
+        let row = astFrom(ch.value[i]);
+        if (exprUsesThis(ch, i)) row = astSub(row, prev.e[i]);
+        if (w !== 1) {
+          row = ch.base === 'scale'
+            ? astBin('+', astNum(1), astBin('*', astBin('-', row, astNum(1)), astNum(w)))
+            : astBin('*', row, astNum(w));
+        }
+        return astSum(prev.e[i], astFold(row));
+      });
+      out.set(key, { e, by: si });
     });
   });
   return out;
 }
 
+function xbtnHTML(key, open) {
+  return '<button class="xbtn" data-exp="' + escapeHtml(key) + '" aria-expanded="' + (open ? 'true' : 'false') + '"'
+    + ' title="' + (open ? '收起' : '展开完整值') + '">' + (open ? '收起' : '展开') + ic(open ? 'chevronUp' : 'chevronDown') + '</button>';
+}
+
 function sumCellHTML(col, fin) {
   const f = fin.get(col.bone + '|' + col.base);
   if (!f) return '<td class="none" title="没有启用的行写这个通道">—</td>';
-  const lines = AX_NAMES.map((ax, i) => {
-    const cls = f.tv[i] ? 'tv' : f.bad[i] ? 'unk' : '';
-    const txt = f.tv[i] ? 't' : f.bad[i] ? '—' : fmtV(f.v[i], col.base);
-    return '<span' + (cls ? ' class="' + cls + '"' : '') + '><i>' + ax + '</i><span class="num">' + txt + '</span></span>';
-  }).join('');
-  const tip = '最后写入：第 ' + (f.by + 1) + ' 行'
-    + (f.miss && f.miss.length ? '｜缺：' + f.miss.join(', ') : '')
-    + (f.tv.some(Boolean) ? '｜t = 随时间变化，没有单一数值' : '');
-  return '<td class="cell sum" title="' + escapeHtml(tip) + '"><div class="vec">' + lines + '</div></td>';
+  const key = 'sum|' + col.bone + '|' + col.base;
+  const open = state.openCells.has(key);
+  const texts = AX_NAMES.map((ax, i) => astText(f.e[i], col.base));
+  const long = texts.some(t => t.length > LONG_EXPR);
+  const clipped = long && !open;
+  const lines = AX_NAMES.map((ax, i) =>
+    '<span><i>' + ax + '</i><span class="sumv' + (f.e[i].k === 'num' ? ' isnum' : '') + '">'
+    + escapeHtml(texts[i]) + '</span></span>').join('');
+  return '<td class="cell sum' + (clipped ? ' clip' : '') + '" title="最后写入：第 ' + (f.by + 1)
+    + ' 行｜variable / query 原样带入，t = 随时间变化">'
+    + '<div class="vec">' + lines + '</div>' + (long ? xbtnHTML(key, open) : '') + '</td>';
 }
 
 function sumRowHTML(cols, fin) {
   return '<tr class="sumrow">'
-    + '<th class="sumh" scope="row" title="按当前顺序叠加、不代入时间：this 读上面的累计，override 先清零。t = 随时间变化，— = 缺变量，都不编数">'
-    + '<div class="sum-top"><b>最终值</b><span class="sum-sub">不代入时间</span></div>'
+    + '<th class="sumh" scope="row" title="按当前顺序叠加、不代入数字：this 读上面的累计，override 先清零；variable / query 原样留在式子里，t 表示随时间变化">'
+    + '<div class="sum-top"><b>最终值</b><span class="sum-sub">不代入数字</span></div>'
     + '</th>'
     + cols.map(c => sumCellHTML(c, fin)).join('')
     + '</tr>';
@@ -2388,10 +2421,7 @@ function cellHTML(row, col, bounds, shadow) {
   const long = isLongChannel(hit);
   const open = long && state.openCells.has(key);
   const clipped = long && !open;
-  const xbtn = long
-    ? '<button class="xbtn" data-exp="' + escapeHtml(key) + '" aria-expanded="' + (open ? 'true' : 'false') + '"'
-      + ' title="' + (open ? '收起' : '展开完整值') + '">' + (open ? '收起' : '展开') + ic(open ? 'chevronUp' : 'chevronDown') + '</button>'
-    : '';
+  const xbtn = long ? xbtnHTML(key, open) : '';
   /* 三条轴都被后面的 -this 写成绝对值 → 按整格被覆盖来画（省掉三个 ⟂），和 override 的观感一致 */
   const tip = (!dead && allCut)
     ? ' title="第 ' + (cuts[0] + 1) + ' 行用 - this 把它写成了绝对值，这格上面的累积不算"'
@@ -3188,7 +3218,7 @@ function initDocs() {
       ['undo', '撤销 / 重做', 'Ctrl+Z 撤销，Ctrl+Y（或 Ctrl+Shift+Z）重做，顶栏两个箭头按钮也能点。顺序调整、启停、增删、收起骨骼列都能回退，最多 80 步；在输入框里仍然是浏览器自带的撤销，不会被抢。'],
       ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。只有<strong>引用了 this 的那一条轴</strong>会标蓝，行头另有 <code>this ×N</code> 计数。'],
       ['ban', '空与划掉', '两种「空」不是一回事：<code>·</code> = 这段动画有这根骨骼、但没写这个通道；<strong>斜纹格</strong> = 这段动画压根没有这根骨骼（行头的 <code>骨骼 4/8</code> 就是覆盖率，悬停能看具体漏了哪几根）。文字被划掉 = 被下面的行作废：<code>override</code> 是整根骨骼作废，<code>- this</code> 只作废它写成绝对值的那一条轴。'],
-      ['sigma', '最终值（底部那行）', '表格最下面一行是<strong>按当前顺序叠加后的结果</strong>：上面的行先算，<code>this</code> 读上面的累计，<code>override</code> 先把它碰到的骨骼清零。<strong>它不代入时间</strong>——所以关键帧、以及用到 <code>query.anim_time</code> / <code>life_time</code> 的轴给不出单一数值，标成 <code>t</code>；用到 <code>variable.*</code> 这种只有游戏里才有值的量，标成 <code>—</code>，不瞎编数字。鼠标停在格子上能看到缺了哪个符号、最后是哪一行写的。'],
+      ['sigma', '最终值（底部那行）', '表格最下面一行是把上面各行<strong>按顺序叠起来</strong>的结果：<code>this</code> 用上一行的结果代入，<code>override</code> 先把它碰到的骨骼清零。<strong>不代入数字</strong>——式子里有 <code>variable</code> / <code>query</code> 就原样留在表达式里，只做化简和抵消（<code>this + (-this)</code> 会直接消掉，<code>-this + 10</code> 最后就是 <code>10</code>）；关键帧这种随时间变的量记作 <code>t</code>。鼠标停在格子上能看到最后是哪一行写的。'],
       ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。表里用琥珀色的行边 + 一条通栏说明带标出来，上面被抹掉的格子会划掉并标 <code>⟂</code>。'],
       ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。时间标在行首，帧数多于 4 个时先列前 3 帧 + <code>… 共 N 帧</code>，点格子底部的<strong>「展开」</strong>看全部。<code>pre</code> 与 <code>post</code> 不同时那一帧标成琥珀色（在这一点跳变）；<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
       ['molang', '表达式', '<code>variable.*</code> / <code>query.*</code> / <code>math.*</code> 都是照抄的原文，不代入数字。所以这张表既能当阅读器，也能拿来核对「我到底写没写对」。'],

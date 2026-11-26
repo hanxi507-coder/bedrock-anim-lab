@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-26 17:38（接手第九次改动）** · `index.html` **3233 行 / 132,135 B**，`node --check` 通过。
+> 最后更新：**2026-11-26 20:25（接手第十次改动）** · `index.html` **3263 行 / 131,898 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,8 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        132135 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       164110 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        131898 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ preview.png       173968 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -131,6 +131,8 @@ D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
 | `-this + 2` | 绝对值 2 |
 | `variable.x - this` | 用 variable.x 直接替换累计值 |
 
+> 注意这里的前提：同一通道的多行是**相加**的，`this` 读到的是加到现在的结果，所以 `-this` 才等于清零。底部「最终值」行就是按这个模型算的（详见 §5.5）。
+>
 > 老版本的实现曾把 `-this` 当成**通道键后缀**（`rotation-this`），那是错的，已彻底移除。现在只认表达式里的 `this` 标识符。
 
 **UI 怎么标「被它抹掉」**（2026-11-26 加）：只要某个轴上的 `this` 是**系数 -1 的线性项**，这一轴就等于写成绝对值，上面所有行在这一轴上的累积都不再计入 → 上面的格子划掉。
@@ -181,34 +183,38 @@ return '<div class="keys">' + ks.map(line).join('')
 
 真实数据里 88% 的通道 ≤ 8 帧，但 bedrock-samples 里最长有 **52 帧**（`bee.animation.json` 的 `leftwing_bone / rotation`）。
 
-### 5.5 Molang 求值层（现状：**接了「最终值」行，不代入时间**）
+### 5.5 「最终值」行：符号叠加，不代入数字
 
-`sampleChannel()` / `applyWeight()` / `fmtV()` / `miss()` 这套求值代码只服务于表格底部那一行「最终值」（2026-11-26 17:15 起；当天 17:30 按用户要求**去掉了时间**）。矩阵单元格仍然只显示原文，不求值。
+表格底部那一行是把**启用中的行**按顺序叠起来的结果。用户定过两条规矩，缺一不可：
 
-规则（`computeFinal()`，**没有 t 参数**，顺序与引擎一致）：
+1. **不代入时间**（「最终值和时间没有关系」）→ 关键帧那种随时间变的量只记作 `t`；
+2. **不代入数字**（「有 query 和 variable，不用写成数字形式，直接带着」）→ 式子里的 `variable.*` / `query.*` 原样留在结果里，只做化简和抵消。
 
-1. 只遍历**启用**的行。
-2. 带 `override_previous_animation` 的行，先把**它碰到的骨骼**按通道清零（scale 清成 1）再往上叠。
-3. 每个通道采样时把当前累计值当 `this` 传进去（`sampleChannel(ch, 0, ctx, thisArr)`），所以 `-this`、`0.5 - this` 都是真按上面的累计算的。
-4. 乘上 `blend_weight`（`applyWeight`，scale 用 `1+(v-1)*w`）。
-
-**不代入时间**（用户原话：「最终值和时间没有关系」）：
-
-- **关键帧通道**直接标 `t`——它本身就是时间的函数，没有单一数值，不去采样某一帧；
-- 静态通道里的 `query.anim_time / life_time …` 也走 `miss()` → 该轴标 `t`；
-- `ctx.vars = {}`、`strictQuery = {}`，也就是**所有**变量和 query 都不喂值，只认纯常量。
-
-**逐轴标记**：`sampleChannel()` 返回 `v`、`bad:[bool,bool,bool]`（缺符号或 NaN）、`missAxis`（每轴缺了哪些名字）。`computeFinal` 用 `TIME_Q` 再分出 `tv:[bool,bool,bool]`（缺的是时间类 query）并往下传：
+实现（`computeFinal()`，无参数）：
 
 ```js
-const readThis = [0,1,2].map(i => exprUsesThis(ch, i) && !axisCancels(ch, i));
-const tv  = [0,1,2].map(i => ownTv[i] || (readThis[i] && prev.tv[i]));
-const bad = [0,1,2].map(i => !ownTv[i] && (!!r.bad[i] || (readThis[i] && prev.bad[i])));
+const e = [0,1,2].map(i => {
+  let row = astFrom(ch.value[i]);                 // 原文 → AST
+  if (exprUsesThis(ch, i)) row = astSub(row, prev.e[i]);   // this := 上一行结果
+  if (w !== 1) row = …乘权重…;
+  return astSum(prev.e[i], astFold(row));         // ★ 累加，不是覆盖
+});
 ```
 
-也就是说：**上面那格不确定，只有当下这行原样读 `this` 时才继续不确定；如果它把 `this` 抵消掉了（`-this + 10`），结果就又是确定的**。这条让 `move(variable.tcos0)` → `athena(-this + 10)` 最后显示 `10`，而不是 `—`。
+**累加语义**（这点很关键，改动过一次）：引擎里同一通道的多行是**相加**的，`this` 读到的是加到现在的结果。所以 `-this` 等于「把这条轴清零」，`0.5 - this` 等于「设成绝对值 0.5」，`-this + 10` 等于「设成 10」——app 里 §5.1 的说明就是这么写的，早先按「覆盖」算会得到 `-62` 这种数，是错的。
 
-渲染：`tv` → `t`（斜体小字），`bad` → `—`，否则 `fmtV()`。格子 `title` 会写「最后写入：第 N 行｜缺：xxx」。
+`astSum(prev, row)` 会把两边摊平成项列表，**把结构相同、符号相反的两项直接消掉**（`this` 与 `-this` 是同一个对象引用，所以 `=== ` 就能判），常量项合并，最后重建表达式并折叠。效果：
+
+| 情形 | 结果 |
+| --- | --- |
+| `var.tcos0` + 72 + `10 - this`（this = var.tcos0 + 72） | `10`（未知量自己消掉，不给数字也能得出确定值） |
+| `-90` / `0` / `-3.1` 这类纯常量 | 直接是数字 |
+| `24 * math.cos(query.body_y_rotation) * …` | 原样带着 `query`，不硬算 |
+| 关键帧通道 | `t`（`TV_NODE` 占位；后面若有 `-this` 也会被消掉） |
+
+渲染：`astText()`——`num` 走 `fmtV()`，其余走 `astPrint()`（带优先级括号、`math.cos(x)` 这种函数调用格式）。太长（> `LONG_EXPR`）的格子加 `.clip` + `展开`，和普通单元格同一套。
+
+**已删除的死代码**：`sampleChannel` / `num` / `hermite` / `applyWeight` / `animLocalTime` / `baseCtx` / `MOLANG_VARS` / `evalMolang`（现在只需要 `Molang.compile` 拿 AST、`Molang.evalAst` 折叠常量）。不要再把「采样某一帧」那套加回来。
 
 ---
 
@@ -277,8 +283,9 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 | `buildMatrix()` | 汇总 → `{rows, groups, cols, bounds, allBones}`。`rows` = 动画行（顺序即 `state.stack`），`groups` = 骨骼分组（**已按 `state.hiddenBones` 过滤**），`cols` = 骨骼 × 通道列，`bounds` = 生效中（`ovOn`）的 override 行，`allBones` = 数据里出现的全部骨骼（给恢复栏用，不受隐藏影响） |
 | `boneRank()` / `BONE_RANK` / `CH_ORDER` | 列排序：`root, body, head, hat, cape, back, leftarm, rightarm, leftleg, rightleg, leftitem, rightitem` 优先，其余按字母；通道固定 `position, rotation, scale` |
 | `deadAt(bone, si, bounds)` | 下方是否存在生效中的 override 行且碰到该骨骼 → 该格划掉 |
-| `computeFinal()` | **无时间参数**，按当前顺序算每个通道的最终值（override 清零 / this / blend_weight），返回 `Map<'bone|base', {v,bad,tv,by,miss}>` |
-| `sumRowHTML(cols, fin)` / `sumCellHTML(col, fin)` | 底部「最终值」行：左侧「最终值 · 不代入时间」，每列 x/y/z；`tv` → `t`，`bad` → `—` |
+| `computeFinal()` | 无参数，按顺序把各行的表达式**相加**成每个通道的 AST（override 先清零、`this` 代入、`blend_weight` 乘权重），返回 `Map<'bone|base', {e:[AST,AST,AST], by}>` |
+| `astFrom` / `astSub` / `astFold` / `astSum` / `astPrint` / `astText` | 符号层：原文转 AST、把 `this` 换成上一行 AST、常量折叠、相加并抵消同类项、按优先级打印、单元格文本（数字走 `fmtV`） |
+| `sumRowHTML(cols, fin)` / `sumCellHTML(col, fin)` | 底部「最终值」行：左侧「最终值 · 不代入数字」，每列 x/y/z；太长加 `.clip` + `展开` |
 | `exprUsesThis(ch, ax)` / `identVec(base)` | 判断某条轴是否读 `this`（用于脏值传播）/ 给通道的单位元（0 或 1） |
 | `axisCancels(ch, ax)` / `CANCEL_THIS` | 这一轴的值是不是「被 `- this` 写成绝对值」（系数 -1、没被乘除）→ 供 `shadow` 用 |
 | `fmtNum(n, base)` | 数字格式化（rotation / 时间 2 位，其余 3 位，去尾零） |
@@ -349,6 +356,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 字号：正文 13–14 / 辅助 11.5–12 / 微标 10.5；数字用等宽（`--mono`，JetBrains Mono 族）
 - 图标统一 `class="icon"`（16px，stroke 1.75），**不许用 emoji 当功能图标**
 - 动效 120–180ms（hover）/ 200–280ms（弹窗），并尊重 `prefers-reduced-motion`
+- 最终值里的表达式用 `.sumv`（10.5px 等宽、`--text-2`，纯数字 `.isnum` 提亮）；太长走 `.clip` 的省略号 + 「展开」
 - 底部「最终值」行是 sticky（`bottom: 0`），底色 `--bg-2` 必须不透明；行头那格同时 sticky left（`z-index: 6`），不然横向滚动会错位
 - 换序动画只动 `transform`（FLIP），不动布局；`<tr>` 上的 transform 在 `border-collapse: separate` 下是可靠的
 - 面板宽度：`.shell max-width: 1560px`（说明文字 `#hint` 单独 1040px）；矩阵列宽：标签列 232px，通道列 **208px**（2026-11-26 从 144 加宽，因为格子改成完整换行后 144 会把 `variable.tcos0 * -1.4` 这种常见表达式折成两行），`width: max(100%, calc(232px + var(--ncol) * 208px))`，窄屏横向滚动
@@ -457,13 +465,22 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 13. **拖拽范围**：在行头任意位置（动画名、序号、时间那一行）按住往上下拖 5px 以上就能换序，不必瞄准抓手；轻点动画名仍然只是开/关，不会误移。
 14. **横向滚动**：把矩阵横向滚到底，行头（尤其 `player.sleeping` 那条浅琥珀底）必须完全不透明，不能透出下面格子的文字。
 15. **长值折叠**：`humanoid.bob` 的左右臂 z 轴、`player.sleeping` 的 root.position/rotation 默认显示成一行 + 省略号，格子右下角有「展开」；点开后完整换行、按钮变「收起」；其余短值不受影响。
-16. **最终值**：底部一行左边是「最终值 · 不代入时间」，**没有时间控件**；默认 5 行时 `body.rotation` 是 `-0.5 / 0 / 2`（sneaking 的 0.5 被 athena 的 `-this` 翻成 -0.5，z 是 athena 的 `-this+2`），`head.rotation` 是 `30/0/0`（override 清零后 sleeping 的 `30-this`），`leftarm.rotation` 是 `-62/0/-5`；`root.position` 的 x/z 显示 `—`（用到 `query.body_y_rotation`）。
+16. **最终值**：底部一行左边是「最终值 · 不代入数字」，**没有时间控件**；默认 5 行时 `body.rotation` 是 `0 / 0 / 2`（sneaking 的 `0.5 - this` 被 athena 的 `-this` 抵掉），`head.rotation` 是 `30/0/0`（override 清零后 sleeping 的 `30-this`），`leftarm.rotation` 是 `10/0/-5`（`variable.tcos0` 被 `-this + 10` 消掉），`root.position` 显示成带 `query.body_y_rotation` 的长表达式并带「展开」。
 17. **换序动画**：拖一行放手（或聚焦抓手按 ↑↓），被移动的行和让位的行会滑到新位置，约 220ms，不闪、不跳；连续拖两次也不会错位。
 18. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-26 20:20 · 最终值改成「符号叠加，不代入数字」
+
+- 用户要求：式子里的 `query` / `variable` 不要硬算成数字，直接带着。于是把数值采样换成 **AST 叠加**：`astFrom` 解析原文 → `astSub` 把 `this` 换成上一行的 AST → `astSum` 相加 → `astFold` 折叠常量 → `astPrint` 打印。
+- **顺手修了一个语义错误**：以前按「覆盖」算（`总 = 本行值`），但引擎是**相加**的（`-this` = 清零）。改成 `总 = 上一行 + 本行值` 之后，`-this + 10` 才真的等于 10。默认栈里 `leftarm.rotation` 从错误的 `-62` 变成正确的 `10`（`variable.tcos0` 与 `-this` 直接抵消），`body.rotation` 从 `-0.5` 变成 `0`。
+- `astSum` 会做项级抵消：结构相同、符号相反的直接消掉（`this` 与 `-this` 是同一对象引用，`===` 即可判），常量合并，重建后按优先级打印（`math.cos(x)`、`(a + b) * c`）。
+- 删掉彻底没用的 `sampleChannel` / `num` / `hermite` / `applyWeight` / `animLocalTime` / `baseCtx` / `MOLANG_VARS` / `evalMolang`（−4.4KB）；`Molang` 只多导出 `evalAst`（折叠常量用）和 `FN`。
+- 最终值格子太长时和普通格子一样 `.clip` + 「展开」（键用 `sum|骨骼|通道`，和 `item.id|…` 不冲突）。
+- 验证：`head.rotation` = 30/0/0、`leftarm.rotation` = 10/0/-5、`root.rotation` = `-90 / 270 - query.sleep_rotation - query.body_y_rotation / 0`、`root.position` = 两条带 `query` 的长式子（`.sumv` 实测 `clientWidth 174 < scrollWidth 867`，省略号生效）。
 
 ### 2026-11-26 17:35 · 最终值去掉时间 + 换序加动画
 
