@@ -953,12 +953,16 @@ body.vscrub .var-in { border-color: var(--accent); }
 .vref {
   display: inline;
   font: inherit; line-height: inherit; color: inherit; white-space: inherit;
-  background: rgba(99, 102, 241, .085);
-  border: 0; padding: 0 2px; margin: 0 -2px; border-radius: 2px;
+  background: none;                    /* 平时完全不着色，不打扰阅读 */
+  border: 0; padding: 0 2px; margin: 0 -2px; border-radius: 3px;
   cursor: pointer;
   box-decoration-break: clone; -webkit-box-decoration-break: clone;
 }
-.vref:hover, .vref:focus-visible { background: rgba(99, 102, 241, .24); color: var(--accent); }
+/* 指针移上去（或点下去、键盘聚焦）才出现圆角矩形，提示「这里能点」 */
+.vref:hover, .vref:active, .vref:focus-visible {
+  background: rgba(99, 102, 241, .16);
+  color: var(--accent);
+}
 .vref:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* 从表格点进来时，那一行高亮一下 */
 .vars-sec .var-row.hit { background: rgba(99, 102, 241, .10); border-radius: 6px; }
@@ -1911,7 +1915,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 03:16';
+const BUILD = '11-28 03:22';
 const LS_KEY = 'bedrock-anim-lab.v4';
 /* 触屏只能从行首那一列起手（单元格区域留给横向滑动）；鼠标在整行任意位置都能拖 */
 const TOUCH_ONLY = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
