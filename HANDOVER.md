@@ -509,6 +509,17 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 ## 14. 变更记录（接手后）
 
+### 2026-11-27 22:05 · 收起交互贴到 sticky 元素上 + 触屏不再残留 hover
+
+- 起因（两条用户反馈）：①「表头不用收起，把收起这个交互直接搞在这两个 sticky 元素上面，不用单起一行」②「手机上触碰到某一行之后背景还是会消失」。
+- 去掉上一轮的 `.togglerow`（三颗胶囊开关）与 `headCollapsed`（state / save / load / render 全部清空，`grep headCollapsed` = 0）：
+  1. **左列收窄**：按钮挪进 `th.corner`（`<button class="coltoggle" data-coltoggle>`，`chevronsLeft/Right`，20×20，`margin-left:auto`），点它把 168px 的行首列压到 96px（序号 + 省略名 + 眼睛/垃圾桶竖排），再点还原。
+  2. **最终值收起**：`th.sumh` 的标签本身变成按钮（`<button class="sumtoggle" data-sumtoggle>`，`min-height:34px` 保证手指点得到 + `chevronsDown`）；收起时 `render()` 不再输出这一行，改成表格后一条 `position:sticky;bottom:0;height:22px` 的 `.sumbar`「最终值 · 已收起，点这里展开」。
+  3. 事件改为 `initViewToggles()` 在 `document` 上委托 `[data-coltoggle]` / `[data-sumtoggle]`，不再逐个绑按钮。
+- **触屏 hover 残留**：真正的元凶是上一轮我自己加的 `.mtx tbody tr.arow:hover td { background: transparent }` —— 触屏 tap 之后 `:hover` 会一直挂着，于是那一行的底色"消失"。改为整段 `@media (hover: hover) and (pointer: fine)`，且只给 `th.rowh` 加 `inset` 竖线，**完全不碰 td 背景**。
+- 另一个坑（已修）：`.mtx.col-collapsed thead th.corner { display:flex }` 会让带 `rowspan="2"` 的 `th` 不再是 table-cell，**下面那行的通道标签整体错位一格**。改成只调 `padding` / `text-align`，保持 `display: table-cell`。
+- 真机验证（Pura 70 Pro / 374×677 dpr 3.375，`hdc` + `uitest uiInput click`）：收窄后多出两根通道列、表头与格子对齐；最终值收起后底部只剩 22px 细条且一屏多出约 60px；点任意一行格子区域，行背景**不再变化**。
+- 顺带：`ICON` 表补 `chevronsLeft/chevronsRight/chevronsUp/chevronsDown`；`.sumtoggle/.sumfold/.coltoggle/.sumbar` 样式；`node --check` 通过。
 ### 2026-11-27 14:05 · 窄屏适配（表格列宽 + 导航两行）
 
 - 起因：用户问「移动端和电脑端都适配好了是吧」。实测 390px：`.mwrap` 内部宽 **2728px**（要横滑 8 屏）、导航 118px 挤成 3 行、撤销图标贴边被裁。桌面 1852px 也只能看到 6 个通道列。

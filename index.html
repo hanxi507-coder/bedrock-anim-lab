@@ -728,28 +728,37 @@ html[data-theme="light"] .expr.th {
 .colbar .cbl b { color: var(--text-2); font-weight: 600; font-family: var(--mono); }
 .colbar .show-all { margin-left: auto; }
 
-/* 三个视图开关：表头 / 动画面板（左列）/ 最终值 —— 窄屏省空间用 */
-.togglerow { display: flex; gap: 6px; margin: 0 0 6px; }
-.tg {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--card);
-  color: var(--text-3);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-  white-space: nowrap;
+/* 左列收窄按钮：直接长在表头左上角那格里 */
+.coltoggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-left: auto;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--bg-2); color: var(--text-3);
+  cursor: pointer; flex: none;
 }
-.tg:hover { color: var(--text-2); border-color: var(--border-2); }
-.tg .tg-caret { font-size: 9px; line-height: 1; transition: transform .15s ease; }
-.tg[aria-expanded="false"] { color: var(--text-2); border-color: var(--border-2); }
-.tg[aria-expanded="false"] .tg-caret { transform: rotate(-90deg); }
-.mtx.head-collapsed thead { display: none; }
+.coltoggle:hover { color: var(--text); border-color: var(--border-2); }
+.coltoggle .icon { width: 12px; height: 12px; }
+/* 「最终值」那一格的标签本身就是收起按钮 */
+.sumtoggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 34px;                 /* 手指点得到（整行高度大，只靠文字太小） */
+  padding: 4px 0; border: 0; background: none; color: inherit;
+  font: inherit; cursor: pointer; text-align: left; width: 100%;
+}
+.sumtoggle:hover { color: var(--text-2); }
+.sumtoggle .sumfold { display: inline-flex; color: var(--text-3); }
+.sumtoggle .sumfold .icon { width: 12px; height: 12px; }
+/* 最终值收起来后，底部留一条 22px 的细条，点它展开 */
+.sumbar {
+  position: sticky; bottom: 0; z-index: 6;
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; height: 22px; padding: 0 10px;
+  border: 0; border-top: 1px solid var(--border);
+  background: var(--bg-2); color: var(--text-3);
+  font: inherit; font-size: 11px; cursor: pointer; text-align: left;
+}
+.sumbar:hover { color: var(--text-2); }
+.sumbar .icon { width: 11px; height: 11px; }
 
 /* 左列收窄：只留 序号 + 抓手 + 启停/删除，标题与徽标收起 */
 .mtx.col-collapsed thead th.corner,
@@ -763,6 +772,11 @@ html[data-theme="light"] .expr.th {
 .mtx.col-collapsed tbody th.rowh .rh-top .acts { width: 100%; justify-content: flex-start; gap: 3px; }
 .mtx.col-collapsed .corner-t,
 .mtx.col-collapsed .bm-btn span { display: none; }
+/* 注意：th 有 rowspan=2，绝不能改成 flex/grid —— 一旦不是 table-cell，
+   下面那行的通道标签会整体错位一格。这里只调内边距与内部对齐。 */
+.mtx.col-collapsed thead th.corner { padding: 6px 4px; text-align: center; }
+.mtx.col-collapsed thead th.corner .corner-row { justify-content: center; gap: 4px; }
+.mtx.col-collapsed thead th.corner .coltoggle { margin-left: 0; }
 /* 手机：这条栏当骨骼选择器用（只显示选中的那一根） */
 .colbar.as-picker { gap: 5px; padding: 5px 7px; flex-wrap: nowrap; overflow-x: auto; }
 .colbar.as-picker .cbl { flex: none; color: var(--text-3); }
@@ -1449,12 +1463,13 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   padding: 6px 10px;
   vertical-align: top;
 }
-/* 悬浮提示：以前是整行换底色，容易被误读成"这一行状态变了"；
-   改成行首一条 2px 竖线 + 行首底色，数据区不动 */
-.mtx tbody tr.arow:hover td { background: transparent; }
-.mtx tbody tr.arow:hover th.rowh { box-shadow: inset 2px 0 0 var(--accent), inset 3px 0 0 var(--c, var(--border-2)); }
-@media (hover: none) {
-  .mtx tbody tr.arow:hover th.rowh { box-shadow: inset 3px 0 0 var(--c, var(--border-2)); }
+/* 悬浮提示：只在有真实指针（鼠标/触控板）时生效。
+   触屏上 :hover 会被 tap 卡住不放，之前整行底色一变就"背景消失"，所以这里既不碰 td 背景，
+   也用 (hover: hover) 把触屏整体排除。 */
+@media (hover: hover) and (pointer: fine) {
+  .mtx tbody tr.arow:hover th.rowh {
+    box-shadow: inset 2px 0 0 var(--accent), inset 3px 0 0 var(--c, var(--border-2));
+  }
 }
 .mtx tbody tr.arow.off td { opacity: .5; }
 .mtx tbody tr.arow.off th.rowh { opacity: 1; }
@@ -1664,17 +1679,7 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
 <div class="shell">
   <div class="colbar" id="colbar" hidden></div>
 
-  <div class="togglerow" id="togglerow">
-    <button class="tg" id="headToggle" type="button" aria-expanded="true" title="收起/展开表头（骨骼行 + 通道行）">
-      <span class="tg-caret">▾</span><span class="tg-txt">表头</span>
-    </button>
-    <button class="tg" id="colToggle" type="button" aria-expanded="true" title="把左边的动画名列收窄成一小条，换取更多通道列">
-      <span class="tg-caret">▾</span><span class="tg-txt">动画面板</span>
-    </button>
-    <button class="tg" id="sumToggle" type="button" aria-expanded="true" title="收起/展开底部的「最终值」行">
-      <span class="tg-caret">▾</span><span class="tg-txt">最终值</span>
-    </button>
-  </div>
+
 
   <div class="mwrap" id="mwrap"><div id="matrix"></div></div>
 
@@ -1742,6 +1747,10 @@ const ICON = {
   chevronDown: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></svg>',
   chevronUp: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></svg>',
   chevronRight: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg>',
+  chevronsLeft: '<svg class="icon" viewBox="0 0 24 24"><path d="M11 6l-5 6 5 6M17 6l-5 6 5 6"/></svg>',
+  chevronsRight: '<svg class="icon" viewBox="0 0 24 24"><path d="M7 6l5 6-5 6M13 6l5 6-5 6"/></svg>',
+  chevronsUp: '<svg class="icon" viewBox="0 0 24 24"><path d="M6 13l6-6 6 6M6 19l6-6 6 6"/></svg>',
+  chevronsDown: '<svg class="icon" viewBox="0 0 24 24"><path d="M6 11l6 6 6-6M6 5l6 6 6-6"/></svg>',
   close: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
   trash: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5.2h5V7M6.6 7l.8 12h9.2l.8-12M10.6 11v4.6M13.4 11v4.6"/></svg>',
   eye: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M2.6 12S6.2 5.8 12 5.8 21.4 12 21.4 12 17.8 18.2 12 18.2 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.9"/></svg>',
@@ -2262,7 +2271,6 @@ const state = {
   vars: {},                  // 用户给 variable.* / query.* 设的值（Blockbench 那种变量占位符），键是完整名
   hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
   openCells: new Set(),      // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
-  headCollapsed: false,      // 表头（骨骼行 + 通道行）是否收起，省一屏的竖向空间
   colCollapsed: false,       // 左边动画名列是否收窄成一小条
   sumHidden: false           // 底部「最终值」行是否收起
 };
@@ -2614,7 +2622,9 @@ function sumRowHTML(cols, fin) {
   const va = usedVarCount();
   return '<tr class="sumrow">'
     + '<th class="sumh" scope="row" title="按当前顺序叠加：this 读上面的累计，override 先清零；设了值的 variable / query 会代入数字，其余原样留在式子里，t 表示随时间变化">'
-    + '<div class="sum-top"><b>最终值</b>' + (va ? '<span class="sum-var">已代入 ' + va + ' 个</span>' : '') + '</div>'
+    + '<button class="sumtoggle" data-sumtoggle type="button" title="收起这一行">'
+    + '<b>最终值</b>' + (va ? '<span class="sum-var">已代入 ' + va + ' 个</span>' : '')
+    + '<span class="sumfold">' + ic('chevronsDown') + '</span></button>'
     + '</th>'
     + cols.map(c => sumCellHTML(c, fin, va)).join('')
     + '</tr>';
@@ -2928,6 +2938,10 @@ function render() {
 
   const head1 = '<th class="corner" rowspan="2" scope="col">'
     + '<span class="corner-row"><span class="corner-t">动画 <span class="dim">/ 骨骼 →</span></span>'
+    + '<button class="coltoggle" data-coltoggle type="button" aria-expanded="'
+    + (state.colCollapsed ? 'false' : 'true') + '" title="'
+    + (state.colCollapsed ? '展开左边的动画名列' : '收起左边的动画名列，换更多通道列') + '">'
+    + ic(state.colCollapsed ? 'chevronsRight' : 'chevronsLeft') + '</button>'
     + '<button class="bm-btn' + (state.hiddenBones.length ? ' on' : '') + '" data-bonemgr type="button"'
     + ' aria-haspopup="dialog" title="选择显示哪些骨骼 · Alt+点骨骼表头 = 只看这一根">'
     + ic('eye') + '<span>骨骼</span></button></span></th>'
@@ -2947,9 +2961,13 @@ function render() {
   /* 最终值行：只跟顺序有关，不代入时间 */
   const sum = state.sumHidden ? '' : sumRowHTML(cols, computeFinal());
 
-  host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>' + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>';
+  host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>'
+    + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>'
+    + (state.sumHidden
+      ? '<button class="sumbar" data-sumtoggle type="button" title="展开最终值行">'
+        + '<span class="sumfold">' + ic('chevronsUp') + '</span>最终值 · 已收起，点这里展开</button>'
+      : '');
   host.style.setProperty('--ncol', cols.length);
-  host.firstChild.classList.toggle('head-collapsed', !!state.headCollapsed);
   host.firstChild.classList.toggle('col-collapsed', !!state.colCollapsed);
   state.allBones = allBones;
   renderColbar(allBones);
@@ -2958,37 +2976,28 @@ function render() {
 }
 
 /* 表头折叠：骨骼行 + 通道行一起收起来，手机上能省 70px 左右 */
-const TG = [
-  ['#headToggle', 'headCollapsed'],
-  ['#colToggle', 'colCollapsed'],
-  ['#sumToggle', 'sumHidden']
-];
-function syncHeadToggle() {
-  TG.forEach(([sel, key]) => {
-    const b = $(sel);
-    if (!b) return;
-    b.setAttribute('aria-expanded', state[key] ? 'false' : 'true');
-    b.classList.toggle('off', !!state[key]);
-  });
+/* 收起/展开：左列按钮长在表头左上角，最终值按钮长在底部那一行上，不额外占一行 */
+function toggleCol() {
+  state.colCollapsed = !state.colCollapsed;
+  const t = document.querySelector('#matrix > table');
+  if (t) t.classList.toggle('col-collapsed', !!state.colCollapsed);
+  const b = document.querySelector('.coltoggle');
+  if (b) {
+    b.setAttribute('aria-expanded', state.colCollapsed ? 'false' : 'true');
+    b.title = state.colCollapsed ? '展开左边的动画名列' : '收起左边的动画名列，换更多通道列';
+  }
+  save();
+}
+function toggleSum() {
+  state.sumHidden = !state.sumHidden;
+  render();
+  save();
 }
 
-function initHeadToggle() {
-  TG.forEach(([sel, key]) => {
-    const b = $(sel);
-    if (!b) return;
-    b.addEventListener('click', () => {
-      state[key] = !state[key];
-      if (key === 'sumHidden') { render(); }        /* 最终值行要重排整表 */
-      else {
-        const t = document.querySelector('#matrix > table');
-        if (t) {
-          t.classList.toggle('head-collapsed', !!state.headCollapsed);
-          t.classList.toggle('col-collapsed', !!state.colCollapsed);
-        }
-        syncHeadToggle();
-      }
-      save();
-    });
+function initViewToggles() {
+  document.addEventListener('click', e => {
+    if (e.target.closest('[data-coltoggle]')) { toggleCol(); return; }
+    if (e.target.closest('[data-sumtoggle]')) { toggleSum(); return; }
   });
 }
 
@@ -3491,7 +3500,6 @@ function save() {
         enabled: i.enabled, color: i.color
       })),
       hiddenBones: state.hiddenBones,
-  headCollapsed: !!state.headCollapsed,
   colCollapsed: !!state.colCollapsed,
   sumHidden: !!state.sumHidden,
       vars: state.vars
@@ -3512,8 +3520,7 @@ function load() {
       it.color = d.color || STACK_COLORS[0];
       return it;
     });
-    state.headCollapsed = !!data.headCollapsed;
-  state.colCollapsed = !!data.colCollapsed;
+    state.colCollapsed = !!data.colCollapsed;
   state.sumHidden = !!data.sumHidden;
   state.hiddenBones = Array.isArray(data.hiddenBones)
       ? data.hiddenBones.filter(b => typeof b === 'string')
@@ -4089,7 +4096,7 @@ function boot() {
   initVars();
   initMatrix();
   initColbar();
-  initHeadToggle();
+  initViewToggles();
   initHistory();
   initDrag();
   $('#stHint').textContent = HINT_DEFAULT;
