@@ -83,6 +83,7 @@ D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
 ├─ avatar.png           803 B  作者头像：从 %APPDATA%/minecraft-desktop-pet/skin.png 裁的 8×8 脸（+帽子层），放大到 160×160 最近邻
 ├─ preview.png       142000 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
+├─ vars.png          145973 B  变量取值弹窗截图（深色，variable.tcos0 = 40 / query.life_time = 0.5）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
 ├─ HANDOVER.md                 本文
@@ -288,7 +289,7 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 | `deadAt(bone, si, bounds)` | 下方是否存在生效中的 override 行且碰到该骨骼 → 该格划掉 |
 | `computeFinal()` | 无参数，按顺序把各行的表达式**相加**成每个通道的 AST（override 先清零、`this` 代入、`blend_weight` 乘权重），返回 `Map<'bone|base', {e:[AST,AST,AST], by}>` |
 | `astFrom` / `astSub` / `astFold` / `astSum` / `astPrint` / `astText` | 符号层：原文转 AST、把 `this` 换成上一行 AST、常量折叠、相加并抵消同类项、按优先级打印、单元格文本（数字走 `fmtV`） |
-| `sumRowHTML(cols, fin)` / `sumCellHTML(col, fin)` | 底部「最终值」行：左侧只写「最终值」（2026-11-27 去掉了「不代入数字」副标题），每列 x/y/z；太长加 `.clip` + `展开` |
+| `sumRowHTML(cols, fin)` / `sumCellHTML(col, fin, vaCount)` | 底部「最终值」行：左侧只写「最终值」（2026-11-27 去掉了「不代入数字」副标题）+ 设了变量时一个小角标「已代入 N 个」；`vaCount > 0` 时每条轴先试 `astNumeric()`，能折叠成常数就显示数字、否则退回符号式；折叠判定看**显示文字**长度（代完只剩 `24` 就不给「展开」） |
 | `exprUsesThis(ch, ax)` / `identVec(base)` | 判断某条轴是否读 `this`（用于脏值传播）/ 给通道的单位元（0 或 1） |
 | `axisCancels(ch, ax)` / `CANCEL_THIS` | 这一轴的值是不是「被 `- this` 写成绝对值」（系数 -1、没被乘除）→ 供 `shadow` 用 |
 | `fmtNum(n, base)` | 数字格式化（rotation / 时间 2 位，其余 3 位，去尾零） |
@@ -298,6 +299,9 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 | `cellHTML(row, col, bounds, shadow)` | 单格：没有该通道时输出 `·`（`.none`）或斜纹（`.bnone`，连骨骼都没有）；有值时按 override（整格 `.dead`）与 `shadow`（逐轴 `.cut`）上标记；长值加 `.clip` + 「展开」按钮 |
 | `isLongChannel(ch)` / `LONG_EXPR` | 单轴字符串 > 44 字符，或关键帧 > 4 个 → 算「长」，默认折叠 |
 | `toggleCell(key)` | 展开/收起单格，key = `item.id|骨骼|通道`，存在 `state.openCells`（内存，不落盘）；重建后把焦点还给同一个按钮 |
+| `collectVarNames()` / `usedVarCount()` / `hasVars()` | 栈里出现过的 `variable.* / query.* / temp.* / context.*`（**含停用行**，停用了也允许先设值）、真正被用到且已设值的数量（决定最终值要不要代数字）、是否设过任何值 |
+| `astApplyVars(n)` / `astNumeric(n)` | 把 `state.vars` 里已知的标识符节点换成 `num` 节点；整棵 AST 都是常数就返回数字，否则 `null`（保留符号式） |
+| `varsBodyHTML()` / `varRowHTML(name)` / `openVars()` / `initVars()` | 「变量」弹窗：按 variable / query·其他 / 已设置但没用到 三段列输入框，`input` 事件即时写 `state.vars` + `render()` + `save()`；清空输入即删除该值 |
 | `snapRows()` / `playRows(snap)` / `renderFlip()` | 换序动画：重建前记下每行 `top`，重建后把行从旧位移 `translateY` 拉回 0（220ms）；`renderFlip()` = 量 → render → 播。`prefers-reduced-motion` 时跳过，标签页在后台（rAF 被挂起）有 90ms 兜底 |
 | `render()` | 重建整张表 + 写 `--ncol`（列数）+ 切换 `#empty` / `#mwrap`（空栈时两个都 hidden）+ 调用 `renderColbar()` |
 | `renderColbar(allBones)` | 画「已隐藏 N 根骨骼」栏：只列当前数据里真的存在、且被隐藏的骨骼；每个是一个 `data-show` 按钮，右侧「全部显示」 |
@@ -405,6 +409,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 | 顶栏「导出」 | 下载 `bedrock-animation-stack.json`（顺序 + 边界 + 每通道原文） |
 | 顶栏「说明」 | 语义说明弹窗 |
 | 顶栏撤销 / 重做（或 `Ctrl+Z` / `Ctrl+Y`） | 回退 / 重做上一步：换序、启停、增删、替换整栈、收起或恢复骨骼列都能回退 |
+| 顶栏「`{ }` 变量」 | 打开变量取值弹窗：给 `variable.*` / `query.*` 填数字，最终值行立刻把能算的算成数字；清空输入即退回符号式；「全部清空」一次清完 |
 | `Esc` | 关闭当前弹窗 |
 | 顶栏月亮/太阳 | 深浅主题切换 |
 
@@ -481,10 +486,26 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 17. **换序手感**：按住行里任意位置（行头或格子）往下拖，那一行会跟手走并盖住经过的行，其它行实时让位（190ms 滑动）；拖到第 4 行再松手，顺序真的落到第 4 位，不是只挪一格。松手后位置保持、刷新后还在。
 18. **快速藏骨骼**：左上角「骨骼」按钮弹出 8 个芯片（当前 8/8），点 `head` → 芯片变暗、表头少一列、顶部出现「已隐藏 1 根骨骼」、面板不关且计数变 7/8；「全部显示」回到 8/8。`Alt` + 点 `body` 表头 → 只剩 body 一列，再 Alt + 点还原。
 19. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
+20. **变量取值**：点顶栏「`{ }` 变量」→ 弹窗按 `variable` / `query·其他` 分组列出当前栈出现的标识符，没设值的显示 `未设置`；给 `variable.tcos0` 填 `40` → 最终值行左边出现「已代入 1 个」，而 `leftarm.rotation` 仍是 `10`（被 `-this + 10` 抵消，说明代入真的参与了运算）；把 sneaking / athena / sleeping 三行停用后，同一格变成 `40`；再把 `query.body_y_rotation`、`query.sleep_rotation` 都填 `0` → `root.position` 从两条长式变成 `24 / 0 / 0`、`root.rotation` 变 `-90 / 270 / 0`、格子右下角的「展开」消失；清空输入 → 一切退回符号式，角标消失。
 
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-27 12:58 · 变量取值（WB 起草，dsh 补完）
+
+- 用户需求原话：「再加个可以由用户改变 variable 和 query 的值的功能，就像 blockbench 的变量占位符一样」。WB 的 dsv4.1f 把主体写完了（未提交、未验证、未写文档），本轮接手做验证 + 四处收尾。
+- 半成品的实现：顶栏 `{ }` 变量按钮 → 弹窗按 `variable` / `query·其他` 分组列出栈里出现的标识符，一格一个 `input[type=number]`；`input` 事件即时写 `state.vars` + `render()` + `save()`；最终值行在 `hasVars()` 时对每条轴跑 `astNumeric()`，能折叠成常数就显示数字，否则退回符号式。
+- 本轮改的四处：
+  1. 新增 `usedVarCount()`，「已代入 N 个」只数**栈里真的用到、并且设了值**的（原来是 `Object.keys(state.vars).length`，删过行 / 换过栈之后会虚高）；
+  2. `collectVarNames()` 去掉「跳过停用行」——否则一停用，它的变量就从弹窗里消失，值再也改不回来；
+  3. 弹窗新增第三段「已设置但当前栈没用到 · 清空可移除」（换栈后残留的值能在这儿清掉；清空后这一段自动消失，且**只在段数真的变了时才重建弹窗**，不抢输入焦点）；
+  4. `sumCellHTML()` 的折叠判定从 `sym` 改成 `texts` —— 代完只剩 `24` 时不该再挂一个「展开」。
+- 语义边界（刻意如此）：只影响底部**最终值**那一行，格子里的原文永远不动；`t`（随时间变化）和没设值的 `query.*` 原样留在式子里。
+- 验证（Edge + 8765）：给 `variable.tcos0` 填 40 → 最终值角标「已代入 1 个」，`leftarm.rotation` 仍是 `10`（被 athena 的 `-this + 10` 抵掉）；把 sneaking/athena/sleeping 三行停用后同一格变 `40`（= `variable.tcos0`）；`query.body_y_rotation` 与 `query.sleep_rotation` 都填 0 → `root.position` 从两条长式变成 `24 / 0 / 0`、`root.rotation` 变 `-90 / 270 / 0`、`展开` 按钮消失、角标「已代入 4 个」；「全部清空」后角标消失、式子复原；刷新后 `state.vars` 从 `localStorage` 正常回来。
+- 新增 `vars.png`（变量弹窗实拍）。
+- 追加：行内格子悬停也能看到这条原文的值 —— `litValue(v)` 单独把那条字面量代入变量并折叠（`null` 表示还算不出来），`chanHTML()` 的静态分支把它拼进 `<span>` 的 `title`：「这条原文代入变量后 = 40」。没设变量时完全不输出（不产生多余 tooltip）；和「绝对值」的提示共存时用 ` · ` 连起来。
+- 注：这轮改动**没有提交**，都在工作区里（约定：等用户确认再 commit）。
 
 ### 2026-11-27 12:32 · 浏览器桥接恢复，重拍 preview
 

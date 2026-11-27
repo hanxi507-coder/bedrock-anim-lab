@@ -787,6 +787,64 @@ body.dragging { cursor: grabbing; user-select: none; }
   image-rendering: pixelated;
   box-shadow: 0 0 0 1px var(--border-2);
 }
+/* 变量取值弹窗 */
+.vars-sec { margin: 0 0 16px; }
+.vars-sec h5 {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.vars-sec h5 .vars-hint {
+  margin-left: 6px;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-3);
+  opacity: .75;
+}
+.var-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 0;
+}
+.var-row code {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.var-in {
+  flex: none;
+  width: 132px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--t-fast) var(--ease);
+}
+.var-in::placeholder { color: var(--text-3); }
+.var-in:focus { outline: none; border-color: var(--accent); }
+.mtx tbody tr.sumrow .sum-var {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent);
+  opacity: .8;
+}
 /* 关于弹窗 */
 .about { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
 .about .face {
@@ -1411,6 +1469,10 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
       <svg class="icon" viewBox="0 0 24 24"><path d="M9 4h6v3H9z"></path><path d="M8 5.5H6.5A1.5 1.5 0 005 7v13a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 20V7a1.5 1.5 0 00-1.5-1.5H16"></path></svg>
       粘贴
     </button>
+    <button class="btn" id="btnVars" title="给 variable / query 设值：设了之后最终值按数字算">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M9.2 4.2H8.4a2 2 0 00-2 2v3.6L4.6 12l1.8 2.2v3.6a2 2 0 002 2h.8M14.8 4.2h.8a2 2 0 012 2v3.6l1.8 2.2-1.8 2.2v3.6a2 2 0 01-2 2h-.8"></path></svg>
+      变量
+    </button>
     <button class="btn" id="btnSamples">
       <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"></path></svg>
       示例库
@@ -2020,6 +2082,7 @@ const SAMPLES = [
    ============================================================ */
 const state = {
   stack: [], sel: null,
+  vars: {},                  // 用户给 variable.* / query.* 设的值（Blockbench 那种变量占位符），键是完整名
   hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
   openCells: new Set()       // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
 };
@@ -2242,6 +2305,69 @@ function exprUsesThis(ch, ax) {
   return ch.keys.some(k => has(k.post[ax]) || has(k.pre[ax]));
 }
 
+/* ---------- 变量取值：把 variable.* / query.* 换成数字（类似 Blockbench 的变量占位符） ---------- */
+const VAR_RE = /\b((?:variable|query|temp|context)\.[A-Za-z_][\w.]*)/g;
+
+function chanStrings(ch) {
+  const out = [];
+  const push = v => { if (typeof v === 'string') out.push(v); };
+  if (ch.kind === 'static') (ch.value || []).forEach(push);
+  else (ch.keys || []).forEach(k => {
+    (k.pre || []).forEach(push);
+    (k.post || []).forEach(push);
+  });
+  return out;
+}
+
+/* 当前栈里出现过哪些 variable / query。
+   含停用行：停用了也允许先给它设值，否则一停用就从弹窗里消失、值再也改不了。 */
+function collectVarNames() {
+  const seen = new Set();
+  state.stack.forEach(it => {
+    it.channels.forEach(ch => {
+      chanStrings(ch).forEach(str => {
+        VAR_RE.lastIndex = 0;
+        let m;
+        while ((m = VAR_RE.exec(str))) seen.add(m[1]);
+      });
+    });
+  });
+  return Array.from(seen).sort();
+}
+
+function hasVars() { return Object.keys(state.vars).length > 0; }
+
+/* 真正被当前栈用到、并且已经设了值的数量（用来决定最终值要不要代数字） */
+function usedVarCount() {
+  if (!hasVars()) return 0;
+  const names = collectVarNames();
+  return Object.keys(state.vars).filter(k => names.indexOf(k) >= 0).length;
+}
+
+/* 把已知的变量节点替换成常量节点 */
+function astApplyVars(n) {
+  if (!n) return n;
+  switch (n.k) {
+    case 'id': {
+      const v = state.vars[n.name];
+      return v == null ? n : { k: 'num', v: v };
+    }
+    case 'neg': return { k: 'neg', a: astApplyVars(n.a) };
+    case 'not': return { k: 'not', a: astApplyVars(n.a) };
+    case 'bin': return { k: 'bin', op: n.op, a: astApplyVars(n.a), b: astApplyVars(n.b) };
+    case 'call': return { k: 'call', name: n.name, args: n.args.map(astApplyVars) };
+  }
+  return n;
+}
+
+/* 全部已知 → 返回数字；还有未知符号（或随时间变化）→ null */
+function astNumeric(n) {
+  const m = astApplyVars(n);
+  if (!astIsConst(m)) return null;
+  const v = Molang.evalAst(m, { vars: {} });
+  return isFinite(v) ? v : null;
+}
+
 function computeFinal() {
   const ident = base => (base === 'scale' ? 1 : 0);
   const out = new Map();                      // "bone|base" -> { e:[AST,AST,AST], by }
@@ -2284,28 +2410,33 @@ function xbtnHTML(key, open) {
     + ' title="' + (open ? '收起' : '展开完整值') + '">' + (open ? '收起' : '展开') + ic(open ? 'chevronUp' : 'chevronDown') + '</button>';
 }
 
-function sumCellHTML(col, fin) {
+function sumCellHTML(col, fin, vaCount) {
   const f = fin.get(col.bone + '|' + col.base);
   if (!f) return '<td class="none" title="没有启用的行写这个通道">—</td>';
   const key = 'sum|' + col.bone + '|' + col.base;
   const open = state.openCells.has(key);
-  const texts = AX_NAMES.map((ax, i) => astText(f.e[i], col.base));
+  const sym = AX_NAMES.map((ax, i) => astText(f.e[i], col.base));
+  const nums = vaCount ? f.e.map(astNumeric) : f.e.map(() => null);
+  const texts = AX_NAMES.map((ax, i) => (nums[i] == null ? sym[i] : fmtNum(nums[i], col.base)));
+  /* 折叠与否看「实际显示的文字」：代入了变量之后可能只剩一个短数字，就不该再给「展开」 */
   const long = texts.some(t => t.length > LONG_EXPR);
   const clipped = long && !open;
   const lines = AX_NAMES.map((ax, i) =>
-    '<span><i>' + ax + '</i><span class="sumv' + (f.e[i].k === 'num' ? ' isnum' : '') + '">'
+    '<span><i>' + ax + '</i><span class="sumv' + (nums[i] != null || f.e[i].k === 'num' ? ' isnum' : '') + '">'
     + escapeHtml(texts[i]) + '</span></span>').join('');
-  return '<td class="cell sum' + (clipped ? ' clip' : '') + '" title="最后写入：第 ' + (f.by + 1)
-    + ' 行｜variable / query 原样带入，t = 随时间变化">'
+  const title = '最后写入：第 ' + (f.by + 1) + ' 行｜'
+    + (nums.some(v => v != null) ? '已代入变量；符号式 ' + sym.map((t, i) => AX_NAMES[i] + ' ' + t).join(' / ') : 'variable / query 原样带入，t = 随时间变化');
+  return '<td class="cell sum' + (clipped ? ' clip' : '') + '" title="' + escapeHtml(title) + '">'
     + '<div class="vec">' + lines + '</div>' + (long ? xbtnHTML(key, open) : '') + '</td>';
 }
 
 function sumRowHTML(cols, fin) {
+  const va = usedVarCount();
   return '<tr class="sumrow">'
-    + '<th class="sumh" scope="row" title="按当前顺序叠加、不代入数字：this 读上面的累计，override 先清零；variable / query 原样留在式子里，t 表示随时间变化">'
-    + '<div class="sum-top"><b>最终值</b></div>'
+    + '<th class="sumh" scope="row" title="按当前顺序叠加：this 读上面的累计，override 先清零；设了值的 variable / query 会代入数字，其余原样留在式子里，t 表示随时间变化">'
+    + '<div class="sum-top"><b>最终值</b>' + (va ? '<span class="sum-var">已代入 ' + va + ' 个</span>' : '') + '</div>'
     + '</th>'
-    + cols.map(c => sumCellHTML(c, fin)).join('')
+    + cols.map(c => sumCellHTML(c, fin, va)).join('')
     + '</tr>';
 }
 
@@ -2404,13 +2535,26 @@ function litHTML(v, base) {
   return '<span class="num">' + (isFinite(n) ? fmtNum(n, base) : '?') + '</span>';
 }
 
+/* 单条字面量代入变量后等于多少（没设变量、或还留着未知符号 → null） */
+function litValue(v) {
+  if (typeof v !== 'string' || !hasVars()) return null;
+  try {
+    const n = astNumeric(astFrom(v));
+    return n == null ? null : n;
+  } catch (e) { return null; }
+}
+
 function chanHTML(ch, base, cuts, clipped) {
   cuts = cuts || [-1, -1, -1];
   if (ch.kind === 'static') {
     return '<div class="vec">' + ['x', 'y', 'z'].map((ax, i) => {
       const at = cuts[i];
       const cut = at != null && at >= 0;
-      return '<span' + (cut ? ' class="cut" title="第 ' + (at + 1) + ' 行把它写成了绝对值（- this），上面这些行在这一轴上的累积不再计入"' : '') + '>'
+      const sub = litValue(ch.value[i]);
+      const tips = [];
+      if (cut) tips.push('第 ' + (at + 1) + ' 行把它写成了绝对值（- this），上面这些行在这一轴上的累积不再计入');
+      if (sub != null) tips.push('这条原文代入变量后 = ' + fmtNum(sub, base));
+      return '<span' + (cut ? ' class="cut"' : '') + (tips.length ? ' title="' + escapeHtml(tips.join(' · ')) + '"' : '') + '>'
         + '<i>' + ax + '</i>' + litHTML(ch.value[i], base)
         + (cut ? '<em class="cutmark" title="这一轴被下面的行用 - this 写成了绝对值，上面的累积不算了">⟂</em>' : '')
         + '</span>';
@@ -3038,7 +3182,8 @@ function save() {
         animKey: i.animKey, def: i.def, fileName: i.fileName,
         enabled: i.enabled, color: i.color
       })),
-      hiddenBones: state.hiddenBones
+      hiddenBones: state.hiddenBones,
+      vars: state.vars
     }));
   } catch (e) { /* 存不下就算了 */ }
 }
@@ -3059,6 +3204,13 @@ function load() {
     state.hiddenBones = Array.isArray(data.hiddenBones)
       ? data.hiddenBones.filter(b => typeof b === 'string')
       : [];
+    state.vars = {};
+    if (data.vars && typeof data.vars === 'object') {
+      Object.keys(data.vars).forEach(k => {
+        const v = Number(data.vars[k]);
+        if (isFinite(v)) state.vars[k] = v;
+      });
+    }
     return true;
   } catch (e) { return false; }
 }
@@ -3447,6 +3599,71 @@ function initExport() {
 }
 
 /* ---------- 说明 ---------- */
+/* ---------- 变量取值弹窗 ---------- */
+function varRowHTML(name) {
+  const v = state.vars[name];
+  return '<label class="var-row">'
+    + '<code>' + escapeHtml(name) + '</code>'
+    + '<input class="var-in" data-var="' + escapeHtml(name) + '" type="number" step="any" inputmode="decimal"'
+    + ' placeholder="未设置"' + (v == null ? '' : ' value="' + v + '"') + '>'
+    + '</label>';
+}
+
+function varsBodyHTML() {
+  const names = collectVarNames();
+  const vset = Object.keys(state.vars);
+  /* 设过值、但当前栈里已经没有谁引用的（换过栈 / 删过行）—— 留在这儿才能清掉 */
+  const orphan = vset.filter(k => names.indexOf(k) < 0).sort();
+  if (!names.length && !orphan.length) {
+    return '<p class="note">当前栈里没有引用 <code>variable.*</code> / <code>query.*</code>。'
+      + '导入带变量的动画后再来。</p>';
+  }
+  const vars = names.filter(n => n.indexOf('variable.') === 0);
+  const qs = names.filter(n => n.indexOf('variable.') !== 0);
+  const sec = (title, list, hint, key) => list.length
+    ? '<div class="vars-sec"' + (key ? ' data-sec="' + key + '"' : '') + '><h5>' + title
+      + (hint ? ' <span class="vars-hint">' + hint + '</span>' : '')
+      + '</h5>' + list.map(varRowHTML).join('') + '</div>'
+    : '';
+  return '<p class="note">填上值，<b>最终值</b>那行会直接算出数字；清空就退回原来的符号式。'
+    + '这里只影响最终值的计算，格子里的原文不动。</p>'
+    + sec('variable', vars) + sec('query / 其他', qs)
+    + sec('已设置但当前栈没用到', orphan, '清空可移除', 'orphan');
+}
+
+function openVars() {
+  openModal('变量取值', varsBodyHTML(),
+    '<button class="btn" id="varsClear">全部清空</button><button class="btn primary" data-close="1">完成</button>');
+}
+
+function initVars() {
+  $('#btnVars').addEventListener('click', openVars);
+  $('#modalBody').addEventListener('input', e => {
+    const input = e.target.closest('.var-in');
+    if (!input) return;
+    const name = input.dataset.var;
+    const raw = input.value.trim();
+    if (raw === '') delete state.vars[name];
+    else {
+      const v = Number(raw);
+      if (!isFinite(v)) return;
+      state.vars[name] = v;
+    }
+    render(); save();
+    /* 「已设置但没用到」那一段会随清空而消失：只在段数真的变了时重建弹窗，免得抢走输入焦点 */
+    const had = !!$('#modalBody .vars-sec[data-sec="orphan"]');
+    const nom = collectVarNames();
+    const now = Object.keys(state.vars).some(k => nom.indexOf(k) < 0);
+    if (had !== now) $('#modalBody').innerHTML = varsBodyHTML();
+  });
+  $('#modal').addEventListener('click', e => {
+    if (!e.target.closest('#varsClear')) return;
+    state.vars = {};
+    render(); save();
+    $('#modalBody').innerHTML = varsBodyHTML();
+  });
+}
+
 /* ---------- 关于 ---------- */
 function openAbout() {
   const body = '<div class="about">'
@@ -3505,6 +3722,7 @@ function boot() {
   initPaste();
   initExport();
   initDocs();
+  initVars();
   initMatrix();
   initColbar();
   initHistory();
