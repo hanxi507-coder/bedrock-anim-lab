@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-27 12:26（接手第二十三次改动）** · `index.html` **3523 行 / 143,022 B**，`node --check` 通过。
+> 最后更新：**2026-11-27 13:10（接手第二十五次改动）** · `index.html` **3795 行 / 153,583 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,12 +78,13 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        143022 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ index.html        153583 B  ← 全部交付物（HTML+CSS+JS 内联）
 ├─ bili.png             5.8 KB 哔哩哔哩头像（i0.hdslb.com 拉下来 → 64×64 PNG）
 ├─ avatar.png           803 B  作者头像：从 %APPDATA%/minecraft-desktop-pet/skin.png 裁的 8×8 脸（+帽子层），放大到 160×160 最近邻
-├─ preview.png       142000 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ preview.png       139615 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ vars.png          145973 B  变量取值弹窗截图（深色，variable.tcos0 = 40 / query.life_time = 0.5）
+├─ compare-override.png  119169 B  两种作废画法（有底色 vs 划线）的上下对比图
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
 ├─ HANDOVER.md                 本文
