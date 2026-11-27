@@ -548,7 +548,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   content: '⟂';
   position: absolute;
   right: 6px;
-  bottom: 3px;
+  bottom: 5px;        /* 原来 3px，整体上移 2px */
   font-size: 10.5px;
   color: var(--amber);
 }
@@ -743,16 +743,6 @@ html[data-theme="light"] .expr.th {
 .colbar .cbl b { color: var(--text-2); font-weight: 600; font-family: var(--mono); }
 .colbar .show-all { margin-left: auto; }
 
-/* 左列收窄按钮：直接长在表头左上角那格里 */
-.coltoggle {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; margin-left: auto;
-  border: 1px solid var(--border); border-radius: 5px;
-  background: var(--bg-2); color: var(--text-3);
-  cursor: pointer; flex: none;
-}
-.coltoggle:hover { color: var(--text); border-color: var(--border-2); }
-.coltoggle .icon { width: 12px; height: 12px; }
 /* 「最终值」那一格的标签本身就是收起按钮 */
 .sumtoggle {
   display: inline-flex; align-items: center; gap: 6px;
@@ -775,39 +765,7 @@ html[data-theme="light"] .expr.th {
 .sumbar:hover { color: var(--text-2); }
 .sumbar .icon { width: 11px; height: 11px; }
 
-/* 左列收窄：只留 序号 + 抓手 + 启停/删除，标题与徽标收起 */
-/* 收起只改「名字那一列」的列宽，绝不动表格总宽：
-   总宽用 --lbl0（展开时的列宽）算，省下来的 122px 归尾巴列，后面的通道列宽度纹丝不动。 */
-.mtx.col-collapsed { --lbl: 88px; }
-.mtx.col-collapsed thead th.corner,
-.mtx.col-collapsed tbody th.rowh { width: 88px; min-width: 88px; padding: 4px 4px; }
-.mtx.col-collapsed tbody th.rowh .rh-top { flex-wrap: wrap; gap: 3px 4px; }
-.mtx.col-collapsed tbody th.rowh .rh-top .key {
-  font-size: 9.5px; line-height: 1.25;
-  display: -webkit-box; -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2; overflow: hidden;   /* 80px 下也留两行，别只剩 huma… */
-}
-/* 收起时不要再藏 rh-meta：藏了行高就由单元格决定，整表会「突然被压扁」。
-   这里让它留在同一行里、超出的部分裁掉，再给行一个接近展开态的最小高度，
-   两种状态的行高就差不出几像素，切换时不会突然缩放。 */
-.mtx.col-collapsed tbody th.rowh { height: 84px; }
-.mtx.col-collapsed tbody th.rowh .rh-meta {
-  flex-wrap: nowrap;
-  gap: 2px 3px;
-  margin-top: 3px;
-  overflow: hidden;
-}
-.mtx.col-collapsed tbody th.rowh .rh-meta .len { font-size: 9.5px; }
-/* 88px 只放得下时长；骨骼数 / molang 计数留在这里只会被切一半，索性不显示 */
-.mtx.col-collapsed tbody th.rowh .rh-meta .tags { display: none; }
-.mtx.col-collapsed tbody th.rowh .rh-top .acts { width: 100%; justify-content: flex-start; gap: 3px; }
-.mtx.col-collapsed .corner-t,
-.mtx.col-collapsed .bm-btn span { display: none; }
-/* 注意：th 有 rowspan=2，绝不能改成 flex/grid —— 一旦不是 table-cell，
-   下面那行的通道标签会整体错位一格。这里只调内边距与内部对齐。 */
-.mtx.col-collapsed thead th.corner { padding: 6px 4px; text-align: center; }
-.mtx.col-collapsed thead th.corner .corner-row { justify-content: center; gap: 4px; }
-.mtx.col-collapsed thead th.corner .coltoggle { margin-left: 0; }
+/* （左列收窄功能已移除：名字列固定宽度，不再有 col-collapsed 状态） */
 .colbar .hb {
   display: inline-flex;
   align-items: center;
@@ -1302,12 +1260,10 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .mtx tbody tr.sumrow td.cpad { border-top: 1px solid var(--border); }
 /* ---- 转置版：行 = 动画，列 = 骨骼 / 通道 ---- */
 .mtx {
-  --lbl0: 210px;   /* 展开态的名字列宽：表格总宽只按它算，收起时不变 */
   --lbl: 210px;
   --chw: 136px;
-  /* max(容器宽, 各列之和)：容器更宽时余量进尾巴列；容器更窄时按各列之和撑开、横向滚动。
-     总和里用的是 --lbl0，所以收起左列只是把 122px 让给尾巴列，真实列宽和表格宽度都不动。 */
-  width: max(100%, calc(var(--lbl0) + var(--ncol, 1) * var(--chw)));
+  /* max(容器宽, 各列之和)：容器更宽时余量进尾巴列（列宽不被摊宽）；容器更窄时按各列之和撑开、横向滚动 */
+  width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw)));
 }
 .mtx thead {
   position: sticky;
@@ -1588,7 +1544,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
   .shell { padding: 16px 16px 56px; }
   .statusbar { padding: 0 16px; }
   .docs { grid-template-columns: 1fr; }
-  .mtx { --lbl0: 186px; --lbl: 186px; --chw: 128px; width: max(100%, calc(var(--lbl0) + var(--ncol, 1) * var(--chw))); }
+  .mtx { --lbl: 186px; --chw: 128px; width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw))); }
   .mtx thead th.corner, .mtx tbody th.rowh { width: 186px; min-width: 186px; }
   .mtx thead th.chanh { width: 128px; }
 }
@@ -1650,7 +1606,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
     border-left: 0; border-right: 0; border-radius: 0;
     box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border);
   }
-  .mtx { --lbl0: 176px; --lbl: 176px; --chw: 118px; width: max(100%, calc(var(--lbl0) + var(--ncol, 1) * var(--chw))); font-size: 11.5px; }
+  .mtx { --lbl: 176px; --chw: 118px; width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw))); font-size: 11.5px; }
   .mtx thead th.corner, .mtx tbody th.rowh { width: 176px; min-width: 176px; padding: 6px 8px; }
   .mtx thead th.corner { font-size: 9.5px; }
   .mtx thead tr:first-child th { height: 26px; font-size: 10.5px; }
@@ -1693,7 +1649,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
 @media (max-width: 480px) {
   .mtx tbody th.rowh { padding: 5px 7px; }
   /* 展开态（168px）比收窄态宽，允许三行，长名不必挤成 ender_drag on.... */
-  .mtx:not(.col-collapsed) tbody th.rowh .rh-top .key { -webkit-line-clamp: 3; }
+  .mtx tbody th.rowh .rh-top .key { -webkit-line-clamp: 3; }
   .rh-top { gap: 4px; }
   .rh-top .idx { font-size: 10px; }
   .rh-top .key { font-size: 11px; line-height: 1.25; }
@@ -1894,7 +1850,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 01:04';
+const BUILD = '11-28 01:12';
 const LS_KEY = 'bedrock-anim-lab.v4';
 const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入 · Ctrl+Z 撤销';
 function applyTheme(t, persist) {
@@ -2386,7 +2342,6 @@ const state = {
   vars: {},                  // 用户给 variable.* / query.* 设的值（Blockbench 那种变量占位符），键是完整名
   hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
   openCells: new Set(),      // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
-  colCollapsed: false,       // 左边动画名列是否收窄成一小条
   sumHidden: false           // 底部「最终值」行是否收起
 };
 
@@ -3056,10 +3011,6 @@ function render() {
 
   const head1 = '<th class="corner" rowspan="2" scope="col">'
     + '<span class="corner-row"><span class="corner-t">动画 <span class="dim">/ 骨骼 →</span></span>'
-    + '<button class="coltoggle" data-coltoggle type="button" aria-expanded="'
-    + (state.colCollapsed ? 'false' : 'true') + '" title="'
-    + (state.colCollapsed ? '展开左边的动画名列' : '收起左边的动画名列，换更多通道列') + '">'
-    + ic(state.colCollapsed ? 'chevronsRight' : 'chevronsLeft') + '</button>'
     + '<button class="bm-btn' + (state.hiddenBones.length ? ' on' : '') + '" data-bonemgr type="button"'
     + ' aria-haspopup="dialog" title="选择显示哪些骨骼 · Alt+点骨骼表头 = 只看这一根">'
     + ic('eye') + '<span>骨骼</span></button></span></th>'
@@ -3087,24 +3038,12 @@ function render() {
         + '<span class="sumfold">' + ic('chevronsUp') + '</span>最终值 · 已收起，点这里展开</button>'
       : '');
   host.style.setProperty('--ncol', cols.length);
-  host.firstChild.classList.toggle('col-collapsed', !!state.colCollapsed);
   state.allBones = allBones;
   renderColbar(allBones);
   updateStatus();
 }
 
-/* 收起/展开：左列按钮长在表头左上角，最终值按钮长在底部那一行上，不额外占一行 */
-function toggleCol() {
-  state.colCollapsed = !state.colCollapsed;
-  const t = document.querySelector('#matrix > table');
-  if (t) t.classList.toggle('col-collapsed', !!state.colCollapsed);
-  const b = document.querySelector('.coltoggle');
-  if (b) {
-    b.setAttribute('aria-expanded', state.colCollapsed ? 'false' : 'true');
-    b.title = state.colCollapsed ? '展开左边的动画名列' : '收起左边的动画名列，换更多通道列';
-  }
-  save();
-}
+/* 最终值那一行可以收起：按钮长在底部那一行自己身上，不额外占一行 */
 function toggleSum() {
   state.sumHidden = !state.sumHidden;
   render();
@@ -3113,7 +3052,6 @@ function toggleSum() {
 
 function initViewToggles() {
   document.addEventListener('click', e => {
-    if (e.target.closest('[data-coltoggle]')) { toggleCol(); return; }
     if (e.target.closest('[data-sumtoggle]')) { toggleSum(); return; }
   });
 }
@@ -3631,8 +3569,7 @@ function save() {
         enabled: i.enabled, color: i.color
       })),
       hiddenBones: state.hiddenBones,
-  colCollapsed: !!state.colCollapsed,
-  sumHidden: !!state.sumHidden,
+      sumHidden: !!state.sumHidden,
       vars: state.vars
     }));
   } catch (e) { /* 存不下就算了 */ }
@@ -3651,9 +3588,8 @@ function load() {
       it.color = d.color || STACK_COLORS[0];
       return it;
     });
-    state.colCollapsed = !!data.colCollapsed;
-  state.sumHidden = !!data.sumHidden;
-  state.hiddenBones = Array.isArray(data.hiddenBones)
+    state.sumHidden = !!data.sumHidden;
+    state.hiddenBones = Array.isArray(data.hiddenBones)
       ? data.hiddenBones.filter(b => typeof b === 'string')
       : [];
     state.vars = {};
