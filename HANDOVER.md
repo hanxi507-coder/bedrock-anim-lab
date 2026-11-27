@@ -95,7 +95,7 @@ D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
 
 ## 4. 数据来源（重要）
 
-- 本地完整仓库：`C:\Users\DUANQIUYI\Desktop\claude\bedrock-samples-v1.26.50.4-full\`
+- 本地完整仓库：`%USERPROFILE%\Desktop\claude\bedrock-samples-v1.26.50.4-full\`
   动画在 `resource_pack\animations\`，共 143 个 json。
 - 示例库里的 12 条定义是**逐字从这些文件抄出来的**（不是编的）：
   `humanoid.animation.json`、`armor_stand.animation.json`、`player.animation.json`、
@@ -438,7 +438,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 5. **Molang 求值链是死代码**（见 §5.5）：要么接回来做「求值」视图，要么删除。
 6. `applyWeight()` / `fmtV()` 无调用点。
 7. 矩阵版 `initDrag()` **没有自动滚动**（v3 卡片版有过 110px 边缘自动滚动）；行数多时拖到屏幕外会吃力，可补。
-8. ~~无 git 仓库~~ → **已 `git init`**（`main`，基线 `0eeaf25`；`.gitattributes` 用 `* -text` 锁死行尾，避免 Windows autocrlf 改动字节）。提交身份是仓库内的 `DUANQIUYI <duanqiuyi@localhost>`，想换就 `git config user.email ...`。
+8. ~~无 git 仓库~~ → **已 `git init`**（`main`，基线 `0eeaf25`；`.gitattributes` 用 `* -text` 锁死行尾，避免 Windows autocrlf 改动字节）。提交身份取本机账号（全局无 `user.name` 时会被拒绝提交，先 `git config user.name/email` 设一个，别写真实姓名）。
 9. 移动端只做了「不横向溢出」级别的适配，矩阵本身必须横向滚动（列多时），可考虑冻结骨骼表头行。
 10. 示例库分组说明 `.lib-note` 用 `--text-3`（深色 #71717A on #141417 ≈ **3.8:1**），11.5px 正文低于 WCAG AA 4.5:1，截图里几乎看不清。改 `--text-2`（≈5.9:1）即可，但会动视觉层级，**未擅自改**。
 11. **展开状态只在内存里**：`state.openCells` 不写 localStorage，刷新后全部回到折叠态（故意的，免得下次打开发现一堆被撑高的行）。
@@ -471,7 +471,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 2. `sneaking` 的 `body.rotation` 的 **x** 是蓝的，y/z 不是；`athena_pose` 整行都是蓝的；
 3. `player.sleeping` 的顶边有琥珀线、行头偏琥珀；它上面 `sneaking` 的 head 格子是**淡琥珀底 + 琥珀划掉 + 琥珀 ⟂**；同一行 `body.rotation`（`0.5 - this`）**没有底色**、只有灰色划掉 + 灰 `⟂`；`sneaking`、`athena_pose` 在 `head` 上的格子被划掉并带 `⟂`（它们写了 `head`，而 `sleeping` 会清 `head`、`root`）；
 4. 示例库勾选一条 → 关闭弹窗前后都能在矩阵里看到它（且是启用状态）；
-5. 导入 `C:\Users\DUANQIUYI\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈；
+5. 导入 `%USERPROFILE%\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈；
 6. **点掉 `player.sleeping` 的眼睛** → 琥珀带消失、`sneaking`/`athena_pose` 的 `head` 格子恢复成正常值（`⟂` 清零，状态栏变成「5 个动画（4 启用）· 7 根骨骼 · 10 个通道」）；再点亮 → 全部复原。这条是 2026-11-26 修的 bug 的回归用例。
 7. 示例库点「**替换整栈**」（FMBE 基础）→ 栈里只剩这 8 行，顺序 `sleeping → creeper.swelling → dragon.neck_head_movement → warden.move → attack.rotations → parrot.moving → minecart.move → parrot.dance`，toast 报「移除 4 个」；再对「bedrock-samples 原生」点一次 → 回到默认 5 行。
 8. **完整显示**：`sleeping` 的 `root.position` 那格要能看到完整的 `24.0 * math.cos(query.body_y_rotation) * …` 一直到最后一个 `)`，**没有省略号**；这一行约 338px 高属正常。
@@ -518,9 +518,9 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 ### 2026-11-27 12:26 · 「关于」加哔哩哔哩空间链接与头像
 
 - 用户要求把 B 站空间和头像也放进来。
-- 通过 `search.bilibili.com/upuser?keyword=小汉西` 找到账号：**UID 326409387**，899 粉丝、23 个视频，简介「希望人生如游戏如此，我将用命令方块改变我的命运」—— 对得上（命令方块 + 动画）。
-- 头像：`https://api.bilibili.com/x/web-interface/card?mid=326409387` 拿 `face`（`i0.hdslb.com/bfs/face/00c38b…jpg`，300×300，Minecraft 风格的 "Hancy" 字标），下载后 `scale=64:64` 存 `bili.png`（5.8 KB）。
-- 布局：名字下方那行改成链接 `[18px b站头像] 哔哩哔哩 @小汉西 ↗`，`target="_blank" rel="noopener"`，指向 `https://space.bilibili.com/326409387`；悬停变亮 + 浅底。
+- 账号按用户的公开昵称检索得到；**UID 与主页地址只写在页面里**（页面是公开作品页，属用户本人授权的署名），不要再抄进文档、注释或提交信息里。
+- 头像：`https://api.bilibili.com/x/web-interface/card?mid=<UID>` 拿 `face` 字段（300×300，Minecraft 风格的 "Hancy" 字标），下载后 `scale=64:64` 存 `bili.png`（5.8 KB）。
+- 布局：名字下方那行改成链接 `[18px b站头像] 哔哩哔哩 @小汉西 ↗`，`target="_blank" rel="noopener"`，指向个人空间；悬停变亮 + 浅底。
 - 说明句从「界面头像取自其本人的 Minecraft 皮肤」改成「头像分别取自其 Minecraft 皮肤与哔哩哔哩个人主页」—— 现在有两张图，得说清。
 - 12:32 桥接恢复后已重拍 `preview.png`（1848×857）。
 
