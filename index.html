@@ -375,7 +375,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .mtx {
   border-collapse: separate;  border-spacing: 0;
   table-layout: fixed;
-  width: max(100%, calc(210px + var(--ncol, 1) * 140px));
+  width: calc(var(--lbl, 210px) + var(--ncol, 1) * var(--chw, 136px));
   font-size: 12.5px;
 }
 
@@ -1264,10 +1264,14 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
     scroll-behavior: auto !important;
   }
 }
+/* 列宽用 <col> 钉死：table-layout:fixed 只有在列宽齐备时才不会把余量摊给某一列 */
+.mtx col.c-lbl { width: var(--lbl, 210px); }
+.mtx col.c-ch  { width: var(--chw, 136px); }
 /* ---- 转置版：行 = 动画，列 = 骨骼 / 通道 ---- */
 .mtx {
   --lbl: 210px;
-  width: max(100%, calc(var(--lbl) + var(--ncol, 1) * 140px));
+  --chw: 136px;
+  width: calc(var(--lbl) + var(--ncol, 1) * var(--chw));
 }
 .mtx thead {
   position: sticky;
@@ -1548,7 +1552,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
   .shell { padding: 16px 16px 56px; }
   .statusbar { padding: 0 16px; }
   .docs { grid-template-columns: 1fr; }
-  .mtx { --lbl: 186px; width: max(100%, calc(var(--lbl) + var(--ncol, 1) * 128px)); }
+  .mtx { --lbl: 186px; --chw: 128px; width: calc(var(--lbl) + var(--ncol, 1) * var(--chw)); }
   .mtx thead th.corner, .mtx tbody th.rowh { width: 186px; min-width: 186px; }
   .mtx thead th.chanh { width: 128px; }
 }
@@ -1610,7 +1614,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
     border-left: 0; border-right: 0; border-radius: 0;
     box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border);
   }
-  .mtx { --lbl: 176px; width: max(100%, calc(var(--lbl) + var(--ncol, 1) * 118px)); font-size: 11.5px; }
+  .mtx { --lbl: 176px; --chw: 118px; width: calc(var(--lbl) + var(--ncol, 1) * var(--chw)); font-size: 11.5px; }
   .mtx thead th.corner, .mtx tbody th.rowh { width: 176px; min-width: 176px; padding: 6px 8px; }
   .mtx thead th.corner { font-size: 9.5px; }
   .mtx thead tr:first-child th { height: 26px; font-size: 10.5px; }
@@ -1854,7 +1858,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 00:02';
+const BUILD = '11-28 00:12';
 const LS_KEY = 'bedrock-anim-lab.v4';
 const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入 · Ctrl+Z 撤销';
 function applyTheme(t, persist) {
@@ -3038,7 +3042,8 @@ function render() {
   /* 最终值行：只跟顺序有关，不代入时间 */
   const sum = state.sumHidden ? '' : sumRowHTML(cols, computeFinal());
 
-  host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>'
+  const colgroup = '<colgroup><col class="c-lbl">' + cols.map(() => '<col class="c-ch">').join('') + '</colgroup>';
+  host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道">' + colgroup + '<thead><tr>'
     + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>'
     + (state.sumHidden
       ? '<button class="sumbar" data-sumtoggle type="button" title="展开最终值行">'
