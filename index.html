@@ -1415,9 +1415,13 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   white-space: normal;
   cursor: grab;                                  /* 整行都能起手拖 */
   box-shadow: none;                              /* 身份色默认不画，避免被读成状态色；见下方 hover / drag */
-  border-top: 1px solid var(--border);           /* 行首列也要有分隔线，否则几行的名字挤在一条白带里 */
+  /* 分隔线用背景画：border 在 border-collapse:collapse + sticky 的组合下容易被邻行背景盖掉 */
+  background-image: linear-gradient(to bottom, var(--border) 0 1px, transparent 1px);
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 100% 1px;
 }
-.mtx tbody tr.arow:first-child > th.rowh { border-top: 0; }
+.mtx tbody tr.arow:first-child > th.rowh { background-image: none; }
 .mtx tbody tr.arow > th.rowh .rh-top { overflow: hidden; }
 .mtx tbody tr.arow > td { cursor: grab; }
 .mtx tbody tr.arow > td button,
