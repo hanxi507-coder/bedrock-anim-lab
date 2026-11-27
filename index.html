@@ -3434,13 +3434,14 @@ function initExport() {
 /* ---------- 关于 ---------- */
 function openAbout() {
   const body = '<div class="about">'
-    + '<img class="face" src="avatar.png" alt="汉西的 Minecraft 皮肤头像" width="58" height="58">'
-    + '<div class="id"><b>汉西</b><span>Hancy · B 站 @小汉西</span></div>'
+    + '<img class="face" src="avatar.png" alt="" width="58" height="58">'
+    + '<div class="id"><b>汉西 · Hancy</b><span>哔哩哔哩 @小汉西</span></div>'
     + '</div>'
-    + '<p>这个网站是一个 <b>vibe coding</b> 项目：由汉西发起并主导，借助 AI 一起完成 —— 想法、取舍、每一条交互都由他定，代码是一边聊一边改出来的。'
-    + '上面这张脸就是他自己的 Minecraft 皮肤，从桌宠里导出的那一张。</p>'
-    + '<p class="src">动画示例逐字取自 <code>bedrock-samples v1.26.50.4</code>，未做改写。</p>';
-  openModal('关于这个项目', body, '<span class="src">© 2026 汉西 Hancy</span><button class="btn" data-close="1">关闭</button>');
+    + '<p>本项目由汉西发起并主持，以 <b>vibe coding</b> 的方式与 AI 协作完成。'
+    + '产品定位、交互细节与全部取舍由其本人决定，实现由 AI 协助产出。</p>'
+    + '<p>界面头像取自其本人的 Minecraft 皮肤。</p>'
+    + '<p class="src">动画示例逐字引自 <code>bedrock-samples v1.26.50.4</code>，未作改写。</p>';
+  openModal('关于', body, '<span class="src">© 2026 汉西 Hancy</span><button class="btn" data-close="1">关闭</button>');
 }
 
 function initDocs() {
