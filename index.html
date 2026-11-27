@@ -1004,16 +1004,7 @@ body.vscrub .var-in { border-color: var(--accent); }
 }
 .statusbar .sep { width: 1px; height: 10px; background: var(--border); }
 .statusbar .r { margin-left: auto; font-family: var(--sans); }
-/* 构建号：常显在状态栏最右，用来确认"我看到的到底是哪一版"（Pages 会缓存 HTML 约 10 分钟） */
-.statusbar #stBuild {
-  margin-left: 10px;
-  padding-left: 10px;
-  border-left: 1px solid var(--border);
-  color: var(--text-3);
-  font-size: 10px;
-  letter-spacing: .02em;
-  font-variant-numeric: tabular-nums;
-}
+
 
 /* ============================================================
    Modal
@@ -1896,7 +1887,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 01:46';
+const BUILD = '11-28 01:56';
 const LS_KEY = 'bedrock-anim-lab.v4';
 const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入 · Ctrl+Z 撤销';
 function applyTheme(t, persist) {
@@ -4220,19 +4211,8 @@ function initDocs() {
 
 /* ---------- boot ---------- */
 function boot() {
-  // 状态栏常显构建号：用户能一眼确认自己加载的是哪一版（Pages 会缓存 HTML 约 10 分钟）
-  try {
-    const sb = document.querySelector('.statusbar');
-    if (sb && !document.getElementById('stBuild')) {
-      const el = document.createElement('span');
-      el.id = 'stBuild';
-      el.className = 'st-build';
-      el.textContent = '构建 ' + BUILD;
-      el.title = '当前页面构建号（用于确认是否加载到最新版本）';
-      sb.appendChild(el);
-    }
-  } catch (e) { /* 只是锦上添花，失败不影响主流程 */ }
   initTheme();
+
   const restored = load();
   if (!restored) loadSamples({ quiet: true });
   assignColors();
