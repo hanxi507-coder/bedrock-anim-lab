@@ -509,6 +509,16 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 ## 14. 变更记录（接手后）
 
+### 2026-11-27 22:45 · 桌面端三个真 bug：render 每帧抛异常 / 单元格折成麻花 / 桌面没有展开
+
+- 用户说「电脑端你同步了吗，感觉问题还是挺多」。文件确实同步了（Pages 与 `main` 同字节），但**代码本身有 bug**：
+  1. **`render()` 末尾还在调 `syncHeadToggle()`** —— 那个函数在 22:05 改成 `toggleCol/toggleSum` 时被我删了。于是**每一次 render 都在最后一行抛 `ReferenceError`**：表格已经重建完，所以肉眼看不出，但 `render()` 之后的语句全被跳过 —— 拖完松手那次 `save()` 没执行（刷新就回退）、toast 不弹、示例库加入后不落盘。这是"问题挺多"的主因。
+     - 修：删掉该调用（`grep syncHeadToggle` = 0）。用 `?` 打点验证：`render / save / loadSamples / toggleSum×2 / toggleCol×2 / addToStack / removeItem / 点展开` 全部 `errs=[]`，`localStorage` 正常写入。
+  2. **单元格在 136px 列里折成 4 行**：`clip` 只在「字符串长度 > 44」时生效，而 `variable.head_position_x - this`（31 字符）不达标 → `white-space: pre-wrap` 把它按 `variable.head_` / `position_x -` / `this` 硬切，行高参差不齐（一行 220px）。
+     - 修：`.expr/.num` 全局 `white-space:nowrap; overflow:hidden; text-overflow:ellipsis`，`.vec>span/.keys li` 加 `min-width:0`；`LONG_EXPR` 44 → **18**（一行约放得下 18–20 个等宽字符），超过就给「展开」按钮。
+  3. **「展开」点了没反应**：上一条把它变成永远单行后，`open` 状态没有对应样式。
+     - 修：`cellHTML` 在 `open` 时给 `<td>` 加 `.open`，CSS `.mtx td.cell.open .expr { white-space:pre-wrap; overflow:visible; overflow-wrap:break-word }`。实测点开后 `white-space=pre-wrap`、格高 105px、按钮变「收起」。
+- 结论：以后改完必须**在浏览器里跑一遍关键路径**（render/save/拖拽/增删），不能只看 `node --check` —— 语法通过不代表运行时没引用死亡函数。
 ### 2026-11-27 22:35 · 拖动换位不再整表重建（修「两张卡抽一下」）+ 拖拽态彻底去色
 
 - 用户反馈两条：「电脑端拖动时不是中性色」「拖动交换时两个卡片会抽出一下」。

@@ -565,12 +565,26 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .keys.dead-keys span { text-decoration: line-through; text-decoration-color: var(--border-2); }
 .keys .more { color: var(--text-3); font-size: 11px; }
 
-/* ---- 长值：默认收成一行，点「展开」看全 ---- */
-.mtx td.cell.clip .expr {
+/* ---- 长值：一格里的每个轴都只占一行，超出打省略号 ----
+   以前是靠 JS 判断"字符串长度 > 44 才挤压成一行"，于是 31 个字符的
+   `variable.head_position_x - this` 不达标、在 136px 的列里折成 4 行，
+   行高被撑得参差不齐 —— 干脆交给 CSS 一律单行。 */
+.mtx td.cell .expr,
+.mtx td.cell .num {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   overflow-wrap: normal;
+}
+.mtx td.cell .vec > span,
+.mtx td.cell .keys li { min-width: 0; }
+/* 点过「展开」的格子回到多行，完整表达式折行显示 */
+.mtx td.cell.open .expr {
+  white-space: pre-wrap;
+  overflow: visible;
+  overflow-wrap: break-word;
+  text-overflow: clip;
 }
 .mtx td.cell .xbtn {
   display: flex;
@@ -2676,7 +2690,9 @@ function axisCancels(ch, ax) {
 
 /* 多长算「长」：单轴超过 44 字符（一列放不下、要折两行以上），或关键帧多于 4 个。
    长的默认收成一行 / 前 3 帧，格子里给「展开」。 */
-const LONG_EXPR = 44;
+/* 一行大约放得下 18–20 个等宽字符；超过就认为"会被省略"，给一个「展开」按钮。
+   44 这个旧门槛让 31 字符的表达式既被挤成一行、又没有展开入口。 */
+const LONG_EXPR = 18;
 function isLongChannel(ch) {
   if (!ch) return false;
   if (ch.kind === 'static') return ch.value.some(v => typeof v === 'string' && v.length > LONG_EXPR);
@@ -2883,7 +2899,7 @@ function cellHTML(row, col, bounds, shadow) {
     : allCut
       ? ' title="第 ' + (cuts[0] + 1) + ' 行用 - this 把它写成了绝对值，这格上面的累积不算"'
       : '';
-  return '<td class="cell' + (dead ? ' dead' : allCut ? ' cutall' : '') + (clipped ? ' clip' : '') + '"' + tip + '>'
+  return '<td class="cell' + (dead ? ' dead' : allCut ? ' cutall' : '') + (clipped ? ' clip' : '') + (open ? ' open' : '') + '"' + tip + '>'
     + chanHTML(hit, col.base, allCut ? [-1, -1, -1] : cuts, clipped)
     + xbtn + '</td>';
 }
@@ -2994,11 +3010,9 @@ function render() {
   host.firstChild.classList.toggle('col-collapsed', !!state.colCollapsed);
   state.allBones = allBones;
   renderColbar(allBones);
-  syncHeadToggle();
   updateStatus();
 }
 
-/* 表头折叠：骨骼行 + 通道行一起收起来，手机上能省 70px 左右 */
 /* 收起/展开：左列按钮长在表头左上角，最终值按钮长在底部那一行上，不额外占一行 */
 function toggleCol() {
   state.colCollapsed = !state.colCollapsed;
