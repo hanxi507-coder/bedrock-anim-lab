@@ -835,10 +835,14 @@ body.dragging { cursor: grabbing; user-select: none; }
   font-family: var(--mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  cursor: ew-resize;          /* 按住左右拖就能调值 */
+  touch-action: none;         /* 别让触屏把拖动当成滚动 */
   transition: border-color var(--t-fast) var(--ease);
 }
 .var-in::placeholder { color: var(--text-3); }
 .var-in:focus { outline: none; border-color: var(--accent); }
+body.vscrub { user-select: none; cursor: ew-resize; }
+body.vscrub .var-in { border-color: var(--accent); }
 .mtx tbody tr.sumrow .sum-var {
   font-family: var(--mono);
   font-size: 10.5px;
@@ -3605,6 +3609,7 @@ function varRowHTML(name) {
   return '<label class="var-row">'
     + '<code>' + escapeHtml(name) + '</code>'
     + '<input class="var-in" data-var="' + escapeHtml(name) + '" type="number" step="any" inputmode="decimal"'
+    + ' title="按住左右拖动调值：1px = 1，Shift ×10，Alt ×0.1；也可以直接输入"'
     + ' placeholder="未设置"' + (v == null ? '' : ' value="' + v + '"') + '>'
     + '</label>';
 }
@@ -3626,6 +3631,7 @@ function varsBodyHTML() {
       + '</h5>' + list.map(varRowHTML).join('') + '</div>'
     : '';
   return '<p class="note">填上值，<b>最终值</b>那行会直接算出数字；清空就退回原来的符号式。'
+    + '也可以按住输入框左右拖动：<span id="varsHint">拖多少改多少</span>，手停就停（1px = 1，Shift ×10，Alt ×0.1）。'
     + '这里只影响最终值的计算，格子里的原文不动。</p>'
     + sec('variable', vars) + sec('query / 其他', qs)
     + sec('已设置但当前栈没用到', orphan, '清空可移除', 'orphan');
@@ -3636,6 +3642,19 @@ function openVars() {
     '<button class="btn" id="varsClear">全部清空</button><button class="btn primary" data-close="1">完成</button>');
 }
 
+/* 写入一个变量值（null = 清掉）；重绘按 ~16ms 节流。
+   不用 rAF：后台标签页 rAF 会被挂起，拖动时表格会僵住。 */
+let varLast = 0, varTimer = 0;
+function applyVar(name, v) {
+  if (v == null || !isFinite(v)) delete state.vars[name];
+  else state.vars[name] = Math.round(v * 1000) / 1000;
+  const now = performance.now();
+  if (now - varLast > 16) { varLast = now; render(); }
+  else if (!varTimer) {
+    varTimer = setTimeout(() => { varTimer = 0; varLast = performance.now(); render(); }, 24);
+  }
+}
+
 function initVars() {
   $('#btnVars').addEventListener('click', openVars);
   $('#modalBody').addEventListener('input', e => {
@@ -3643,19 +3662,54 @@ function initVars() {
     if (!input) return;
     const name = input.dataset.var;
     const raw = input.value.trim();
-    if (raw === '') delete state.vars[name];
-    else {
-      const v = Number(raw);
-      if (!isFinite(v)) return;
-      state.vars[name] = v;
-    }
-    render(); save();
+    applyVar(name, raw === '' ? null : Number(raw));
+    save();
     /* 「已设置但没用到」那一段会随清空而消失：只在段数真的变了时重建弹窗，免得抢走输入焦点 */
     const had = !!$('#modalBody .vars-sec[data-sec="orphan"]');
     const nom = collectVarNames();
     const now = Object.keys(state.vars).some(k => nom.indexOf(k) < 0);
     if (had !== now) $('#modalBody').innerHTML = varsBodyHTML();
   });
+
+  /* 按住输入框左右拖动 = 按位移改值（1px = 1，Shift ×10，Alt ×0.1）。
+     纯位移驱动：手不动值就不动；不足 3px 当作普通点击，交给输入框自己处理。 */
+  let scrub = null;
+  $('#modalBody').addEventListener('pointerdown', e => {
+    const input = e.target.closest('.var-in');
+    if (!input || e.button !== 0) return;
+    scrub = {
+      input, name: input.dataset.var, x0: e.clientX,
+      v0: input.value === '' ? null : Number(input.value), moved: false
+    };
+  });
+  window.addEventListener('pointermove', e => {
+    if (!scrub) return;
+    const dx = e.clientX - scrub.x0;
+    if (!scrub.moved) {
+      if (Math.abs(dx) < 3) return;          /* 还没到拖动阈值：留给点击/输入 */
+      scrub.moved = true;
+      document.body.classList.add('vscrub');
+      $('#varsHint') && ($('#varsHint').textContent = '松开即可固定');
+    }
+    const step = e.shiftKey ? 10 : (e.altKey ? 0.1 : 1);
+    const v = (scrub.v0 == null ? 0 : scrub.v0) + dx * step;
+    applyVar(scrub.name, v);
+    if (state.vars[scrub.name] != null) scrub.input.value = String(state.vars[scrub.name]);
+  });
+  window.addEventListener('pointerup', () => {
+    if (!scrub) return;
+    const moved = scrub.moved;
+    scrub = null;
+    document.body.classList.remove('vscrub');
+    const hint = $('#varsHint');
+    if (hint) hint.textContent = '按住左右拖动调值';
+    if (moved) save();
+  });
+  window.addEventListener('pointercancel', () => {
+    scrub = null;
+    document.body.classList.remove('vscrub');
+  });
+
   $('#modal').addEventListener('click', e => {
     if (!e.target.closest('#varsClear')) return;
     state.vars = {};
