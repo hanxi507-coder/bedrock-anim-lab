@@ -375,7 +375,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .mtx {
   border-collapse: separate;  border-spacing: 0;
   table-layout: fixed;
-  width: max(100%, calc(158px + var(--ncol, 1) * 226px));
+  width: max(100%, calc(210px + var(--ncol, 1) * 140px));
   font-size: 12.5px;
 }
 
@@ -1146,55 +1146,58 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 @media (max-width: 1023px) {
   .nav { padding: 0 16px; }
   .shell { padding: 16px 16px 56px; }
-  .legend { grid-template-columns: 96px 104px repeat(3, minmax(56px, 1fr)) 132px; }
-  .row { grid-template-columns: 96px 104px repeat(3, minmax(56px, 1fr)) 132px; }
   .statusbar { padding: 0 16px; }
   .docs { grid-template-columns: 1fr; }
+  .mtx { width: max(100%, calc(186px + var(--ncol, 1) * 128px)); }
+  .mtx thead th.corner, .mtx tbody th.rowh { width: 186px; min-width: 186px; }
+  .mtx thead th.chanh { width: 128px; }
 }
 
+/* 窄屏：导航收成两行、表格瘦身到能看清的最小宽度、去掉外框圆角吃满屏宽 */
 @media (max-width: 767px) {
-  .nav { flex-wrap: wrap; height: auto; min-height: 56px; row-gap: 6px; padding: 10px 14px; }
-  .nav-actions { gap: 4px; width: 100%; flex-wrap: wrap; }
-  .nav-spacer { display: none; }
-  .btn { height: 32px; padding: 0 10px; font-size: 12.5px; }
-  .btn.icon-only { width: 32px; }
+  .nav { height: auto; min-height: 52px; padding: 8px 12px; row-gap: 6px; flex-wrap: wrap; }
   .brand-text small { display: none; }
-
-  .shell { padding: 12px 12px 52px; }
-  .toolbar { top: 0; position: static; gap: 8px; padding: 8px; }
-  .time { min-width: auto; font-size: 12px; }
-  .track { order: 3; flex-basis: 100%; }
-  .divider { display: none; }
-  .field > label { display: none; }
-
-  .legend { display: none; }
-
-  .card-head { flex-wrap: wrap; row-gap: 6px; padding: 9px 8px; }
-  .head-right { margin-left: auto; }
-  .tags { padding-left: 10px; }
-  .bound { padding-left: 10px; }
-
-  .row {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.45fr);
-    gap: 2px 6px;
-    padding: 8px 10px;
-    border-radius: 0;
+  .nav-spacer { display: none; }
+  .nav-actions {
+    width: 100%; gap: 4px; flex-wrap: nowrap;
+    overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
   }
-  .row:hover { background: transparent; }
-  .row.first { margin-top: 0; padding-top: 8px; }
-  .bname { grid-column: span 2; font-size: 11px; }
-  .base { grid-column: span 2; justify-content: flex-end; }
-  .v { grid-column: span 1; font-size: 11.5px; }
-  .acc { grid-column: span 1; font-size: 11px; gap: 3px; }
+  .nav-actions::-webkit-scrollbar { display: none; }
+  .nav-actions > * { flex: none; }
+  .btn { height: 30px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
+  .btn.icon-only { width: 30px; }
+  .btn .icon { width: 14px; height: 14px; }
 
-  .card-empty { padding-left: 12px; }
-  .modal { padding: 12px; }
+  .shell { padding: 10px 0 44px; }
+
+  .mwrap {
+    border-left: 0; border-right: 0; border-radius: 0;
+    box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border);
+  }
+  .mtx { width: max(100%, calc(168px + var(--ncol, 1) * 118px)); font-size: 11.5px; }
+  .mtx thead th.corner, .mtx tbody th.rowh { width: 168px; min-width: 168px; padding: 6px 8px; }
+  .mtx thead th.corner { font-size: 9.5px; }
+  .mtx thead tr:first-child th { height: 26px; font-size: 10.5px; }
+  .mtx thead th.boneh { font-size: 11px; padding: 5px 8px; }
+  .mtx thead th.chanh { width: 118px; font-size: 10px; padding: 5px 8px; }
+  .rh-top .key { font-size: 12px; }
+  .rh-meta { font-size: 10.5px; gap: 4px; }
+  .rh-meta .len { display: none; }
+  .rh-meta .cover { display: none; }
+  .rh-meta .chip { font-size: 9.5px; padding: 1px 4px; }
+  .mtx td.cell { font-size: 11px; }
+  .mtx td.cell .vec, .mtx td.cell .keys { line-height: 1.5; }
+
+  .modal { padding: 10px; }
   .modal-card { max-height: 90vh; }
-  .modal-body { padding: 14px; }
-  .statusbar { height: 36px; font-size: 11px; }
-  .statusbar .r { display: none; }
-  .toasts { right: 12px; left: 12px; bottom: 48px; }
+  .modal-body { padding: 12px; }
+  .modal-foot { padding: 10px 12px; }
+  .toasts { left: 10px; right: 10px; bottom: 42px; }
   .toast { max-width: none; }
+  .statusbar { height: 34px; font-size: 10.5px; padding: 0 10px; }
+  .statusbar .r { display: none; }
+  .vars-sec .var-row { grid-template-columns: 1fr; gap: 4px; }
+  .vars-sec .var-in { width: 100%; }
 }
 
 @media (max-height: 380px) {
@@ -1215,7 +1218,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 }
 /* ---- 转置版：行 = 动画，列 = 骨骼 / 通道 ---- */
 .mtx {
-  width: max(100%, calc(232px + var(--ncol, 1) * 208px));
+  width: max(100%, calc(210px + var(--ncol, 1) * 140px));
 }
 .mtx thead {
   position: sticky;
@@ -1239,8 +1242,8 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .mtx thead th.corner {
   left: 0;
   z-index: 7;
-  width: 232px;
-  min-width: 232px;
+  width: 210px;
+  min-width: 210px;
   vertical-align: middle;
   font-family: var(--mono);
   font-size: 10px;
@@ -1339,7 +1342,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 }
 .mtx thead th.boneh .ghost-dot { margin-right: 5px; }
 .mtx thead th.chanh {
-  width: 208px;
+  width: 140px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-3);
@@ -1349,8 +1352,8 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 }
 
 .mtx tbody th.rowh {
-  width: 232px;
-  min-width: 232px;
+  width: 210px;
+  min-width: 210px;
   padding: 7px 10px;
   vertical-align: middle;
   white-space: normal;

@@ -509,6 +509,18 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 ## 14. 变更记录（接手后）
 
+### 2026-11-27 14:05 · 窄屏适配（表格列宽 + 导航两行）
+
+- 起因：用户问「移动端和电脑端都适配好了是吧」。实测 390px：`.mwrap` 内部宽 **2728px**（要横滑 8 屏）、导航 118px 挤成 3 行、撤销图标贴边被裁。桌面 1852px 也只能看到 6 个通道列。
+- **根因不是「缺 media query」，而是转置后列宽没跟着改**：`.mtx thead th.chanh{width:208px}` + `.mtx{width:calc(232px + ncol*208px)}` 还是「列 = 动画」时代的尺寸，而现在一列只是一个 `position/rotation/scale`，208px 太宽。同时 `@media (max-width:1023px)` / `(max-width:767px)` 两段里写的全是旧卡片类名（`.legend`、`.row`、`.card-head`、`.tags`、`.bound`、`.acc`、`.v`、`.bname`、`.base`），HTML 里 0 命中，等于死代码。
+- 改法（只动 CSS）：
+  1. 桌面列宽 `232+208n` → **`210 + 140n`**（`.mtx` 的 width、`th.chanh`、`th.corner`、`th.rowh` 四处一起改）。1852px 下可见通道列 6 → 9，12 列总宽 2728 → 1890。
+  2. 1023 档：`186 + 128n`。767 档：`168 + 118n`。
+  3. 767 档重写：`.nav` 收成两行（品牌一行 / 动作一行），`.nav-actions{flex-wrap:nowrap;overflow-x:auto}` + 隐藏滚动条、按钮 30px，导航高 118 → 84px；`.mwrap` 去左右边框与圆角吃满宽度；`thead`/`th`/`.cell` 字号 11–11.5px；`.rh-meta .cover`（「骨骼 4/8」）与 `.len` 在窄屏隐藏，行高明显变矮；`.modal`/`.statusbar`/`.toasts`/变量弹窗的 `.var-row` 都收窄。
+  4. 删掉 767 档里所有旧卡片类名的规则（`.toolbar`、`.legend`、`.card-head`、`.row`、`.bname`、`.base`、`.v`、`.acc`、`.card-empty`）——它们对应的元素早就不存在了。
+- 教训：列宽用 `140` 不是随便取的 —— `136` 会让 `variable.tcos0` 在单元格里折成两行（`.expr` 是 `white-space:pre-wrap`，故意不截断），`140` 刚好放得下。
+- 验证：390 / 820 / 1852 三档截图；`.mwrap` 宽 2728 → 1890（桌面）/ 1584（手机）；导航高 118 → 84；页面本身仍无横向溢出（`documentElement.scrollWidth == clientWidth`）。
+
 ### 2026-11-27 13:08 · 变量输入框改成「拖多少改多少」
 
 - 用户：「这个变量要根据鼠标的位置去改值，鼠标划多少就增加或减少多少，而不是鼠标不动还一直在增减」。
