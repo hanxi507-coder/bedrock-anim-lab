@@ -1582,13 +1582,17 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
   }
   .colbar::-webkit-scrollbar { display: none; }
   .colbar > * { flex: none; }
+  /* 手机上不再让「全部显示」贴右固定 —— 它会盖住滚过去的骨骼芯片，看起来像飘在中间。
+     改成跟在「已隐藏 N 根骨骼」后面，位置固定、不会被压住。 */
+  .colbar .cbl { order: -2; }
   .colbar .show-all {
-    position: sticky;
-    right: 0;
+    order: -1;
+    position: static;
     margin-left: 0;
-    padding-left: 8px;
-    background: var(--card);
-    box-shadow: -8px 0 8px -6px color-mix(in srgb, var(--bg) 70%, transparent);
+    margin-right: 4px;
+    background: transparent;
+    box-shadow: none;
+    height: 24px;
   }
   .colbar .hb { height: 24px; }
 
