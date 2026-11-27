@@ -1882,7 +1882,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 02:18';
+const BUILD = '11-28 02:26';
 const LS_KEY = 'bedrock-anim-lab.v4';
 /* 触屏只能从行首那一列起手（单元格区域留给横向滑动）；鼠标在整行任意位置都能拖 */
 const TOUCH_ONLY = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
@@ -4051,7 +4051,7 @@ function varRowHTML(name) {
   return '<label class="var-row">'
     + '<code>' + escapeHtml(name) + '</code>'
     + '<input class="var-in" data-var="' + escapeHtml(name) + '" type="number" step="any" inputmode="decimal"'
-    + ' title="按住左右拖动调值：1px = 0.4，Shift ×10（更快），Alt ×0.1（更慢）；也可以直接输入"'
+    + ' title="按住左右拖动调值：值 = 0.2 × 位移(px)；Shift 时 值 = 2 × 位移，Alt 时 值 = 0.02 × 位移。也可以直接输入数字"'
     + ' placeholder="未设置"' + (v == null ? '' : ' value="' + v + '"') + '>'
     + '</label>';
 }
@@ -4073,7 +4073,7 @@ function varsBodyHTML() {
       + '</h5>' + list.map(varRowHTML).join('') + '</div>'
     : '';
   return '<p class="note">填上值，<b>最终值</b>那行会直接算出数字；清空就退回原来的符号式。'
-    + '也可以按住输入框左右拖动：<span id="varsHint">拖多少改多少</span>，手停就停（1px = 0.4，Shift 更快，Alt 更慢）。'
+    + '也可以按住输入框左右拖动，手停就停：<b>值 = 0.2 × 位移(px)</b>；按住 Shift 时 <b>值 = 2 × 位移</b>，Alt 时 <b>值 = 0.02 × 位移</b>。'
     + '这里只影响最终值的计算，格子里的原文不动。</p>'
     + sec('variable', vars) + sec('query / 其他', qs)
     + sec('已设置但当前栈没用到', orphan, '清空可移除', 'orphan');
@@ -4113,8 +4113,8 @@ function initVars() {
     if (had !== now) $('#modalBody').innerHTML = varsBodyHTML();
   });
 
-  /* 按住输入框左右拖动 = 按位移改值。步长 0.4/px：比"1px 改 1"慢一点，手抖不会跳数；
-     Shift = 4/px（快速拉），Alt = 0.04/px（精调）。触屏同样按 clientX 位移算，灵敏度一致。
+  /* 按住输入框左右拖动 = 按位移改值。步长 0.2/px：明显比像素慢，手抖几乎不跳数；
+     Shift = 2/px（粗调），Alt = 0.02/px（精调）。触屏同样按 clientX 位移算，灵敏度一致。
      纯位移驱动：手不动值就不动；不足 3px 当作普通点击，交给输入框自己处理。 */
   let scrub = null;
   $('#modalBody').addEventListener('pointerdown', e => {
@@ -4134,7 +4134,7 @@ function initVars() {
       document.body.classList.add('vscrub');
       $('#varsHint') && ($('#varsHint').textContent = '松开即可固定');
     }
-    const step = e.shiftKey ? 4 : (e.altKey ? 0.04 : 0.4);
+    const step = e.shiftKey ? 2 : (e.altKey ? 0.02 : 0.2);
     const v = (scrub.v0 == null ? 0 : scrub.v0) + dx * step;
     applyVar(scrub.name, v);
     if (state.vars[scrub.name] != null) scrub.input.value = String(state.vars[scrub.name]);
