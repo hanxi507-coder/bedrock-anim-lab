@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-27 13:10（接手第二十五次改动）** · `index.html` **3795 行 / 153,583 B**，`node --check` 通过。
+> 最后更新：**2026-11-27 13:20（接手第二十六次改动）** · `index.html` **3796 行 / 153,583 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -22,7 +22,21 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 - 单文件、零依赖、零 CDN、全部内联；**双击 index.html 也能用**（没有 fetch / 没有 module）。
 - 文件编码 UTF-8 **无 BOM**；文件里既有 LF 也有少量 CRLF，批量脚本请用 `[IO.File]::ReadAllText/WriteAllText` + `UTF8Encoding($false)`，不要用会改行尾的编辑器一键格式化。
-- 没有 git 仓库。**改大块之前先 Copy-Item 一份备份**（血的教训见 §12）。
+- 仓库已 `git init`（分支 `main`，作者取本机账号）。**改大块之前先 `Copy-Item` 一份备份**（血的教训见 §12），改完立刻 `commit`。
+
+---
+
+## 0.5 接手速查（WB 交接笔记 + dsh 核对）
+
+| 事项 | 结论 |
+| --- | --- |
+| 看“接手后到底改了什么” | `git diff 0eeaf25 HEAD` —— `0eeaf25` 是 `baseline: v4 矩阵版`。**信 diff，别信文档里的行号**（行号会漂，当前 `index.html` 3796 行 / 153,583 B） |
+| 提交数口径 | WB 记的是 52 条；dsh 这边 `git rev-list --count --all` = **32**（单分支 `main`，无其它 ref）。数量对不上多半是中途 `--amend`/重建过分支，内容没丢——以 diff 为准 |
+| `.workbuddy/memory/` | WB 的会话笔记目录，只在 WB 侧完整；本机这份几乎是空的，**别依赖它**，要点都已镜像进 §14 |
+| B 站 UID | 文档里刻意清掉了（commit `89e3297`）；真值在代码 `openAbout()` 的链接上（`index.html` 约 3722–3730 行）。要改只改那里，别写回文档 |
+| 浏览器验证环境 | 只有 **Edge Profile 1** 装了扩展；断连时的恢复步骤见 §14 的 12:32 条目（MV3 worker 约 10s 休眠 / daemon revoked / `~/.bsk/local-*`） |
+| 动语义之前 | 先读 §5。`this` / `override_previous_animation` / 累加是这套东西的灵魂，历史上两次「看起来是 bug 其实是语义」都出在这里 |
+| 文档习惯 | 每轮改完在 §14 追一条：用户原话 + 做法 + 验证数据 + commit。这份文档的价值全靠这个习惯 |
 
 ---
 
