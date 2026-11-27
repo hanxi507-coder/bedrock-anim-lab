@@ -617,7 +617,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .mtx tbody tr.sumrow .sum-top b { font-weight: 600; color: var(--text); }
 .mtx tbody tr.sumrow .sumv {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 11.5px;
   line-height: 1.45;
   color: var(--text-2);
   min-width: 0;
@@ -636,7 +636,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .vec i {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
   font-style: normal;
   color: var(--text-3);
   width: 8px;
@@ -645,7 +645,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .num {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
@@ -653,7 +653,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: block;
   min-width: 0;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--text);
   background: var(--bg-2);
   border: 1px solid var(--border);
@@ -765,6 +765,51 @@ body.dragging { cursor: grabbing; user-select: none; }
 /* ============================================================
    Footer
    ============================================================ */
+.statusbar .author {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 2px 6px 2px 3px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.statusbar .author:hover { color: var(--text); border-color: var(--border); background: var(--bg-2); }
+.statusbar .author .avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  image-rendering: pixelated;
+  box-shadow: 0 0 0 1px var(--border-2);
+}
+/* 关于弹窗 */
+.about { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.about .face {
+  width: 58px;
+  height: 58px;
+  border-radius: 9px;
+  image-rendering: pixelated;
+  box-shadow: 0 0 0 1px var(--border-2);
+}
+.about .id { display: flex; flex-direction: column; gap: 3px; }
+.about .id b { font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: .01em; }
+.about .id span { font-family: var(--mono); font-size: 12px; color: var(--text-3); }
+.about p { margin: 0 0 10px; font-size: 13px; line-height: 1.8; color: var(--text-2); }
+.about p:last-child { margin-bottom: 0; }
+.about .src { color: var(--text-3); font-size: 12px; }
+.about kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  color: var(--text-2);
+}
 .statusbar {
   position: fixed;
   left: 0;
@@ -1204,7 +1249,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 }
 .bm-foot button:hover { color: var(--text); border-color: var(--border-2); background: var(--hover); }
 .mtx thead th.boneh {
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 600;
   letter-spacing: -.005em;
   color: var(--text);
@@ -1218,7 +1263,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .mtx thead th.chanh {
   width: 208px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-3);
   background: var(--bg-2);
   border-left: 1px solid var(--border);
@@ -1247,7 +1292,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .mtx tbody th.rowh.off .rh-meta { opacity: .45; }
 .rh-top { display: flex; align-items: center; gap: 6px; }
 .rh-top .key {
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--text);
   min-width: 0;
@@ -1392,6 +1437,10 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   <span class="sep"></span>
   <span id="stChans">12 个通道</span>
   <span class="r" id="stHint">拖动行首排序 · 拖文件进窗口导入</span>
+  <button class="author" id="btnAbout" type="button" title="关于这个项目 · 汉西 Hancy">
+    <img class="avatar" src="avatar.png" alt="汉西的 Minecraft 皮肤头像" width="16" height="16">
+    <span>汉西 · Hancy</span>
+  </button>
 </footer>
 
 <div class="modal" id="modal" hidden="">
@@ -3382,6 +3431,18 @@ function initExport() {
 }
 
 /* ---------- 说明 ---------- */
+/* ---------- 关于 ---------- */
+function openAbout() {
+  const body = '<div class="about">'
+    + '<img class="face" src="avatar.png" alt="汉西的 Minecraft 皮肤头像" width="58" height="58">'
+    + '<div class="id"><b>汉西</b><span>Hancy · B 站 @小汉西</span></div>'
+    + '</div>'
+    + '<p>这个网站是一个 <b>vibe coding</b> 项目：由汉西发起并主导，借助 AI 一起完成 —— 想法、取舍、每一条交互都由他定，代码是一边聊一边改出来的。'
+    + '上面这张脸就是他自己的 Minecraft 皮肤，从桌宠里导出的那一张。</p>'
+    + '<p class="src">动画示例逐字取自 <code>bedrock-samples v1.26.50.4</code>，未做改写。</p>';
+  openModal('关于这个项目', body, '<span class="src">© 2026 汉西 Hancy</span><button class="btn" data-close="1">关闭</button>');
+}
+
 function initDocs() {
   const openDocs = () => {
     const docs = [
@@ -3406,6 +3467,8 @@ function initDocs() {
       '<div class="doc-card"><h4>' + ic(d[0]) + d[1] + '</h4><p>' + d[2] + '</p></div>').join('') + '</div>');
   };
   $('#btnDocs').addEventListener('click', openDocs);
+  const about = $('#btnAbout');
+  if (about) about.addEventListener('click', openAbout);
 }
 
 /* ---------- boot ---------- */

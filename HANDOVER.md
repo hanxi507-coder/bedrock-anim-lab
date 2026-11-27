@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-27 00:22（接手第十九次改动）** · `index.html` **3438 行 / 139,434 B**，`node --check` 通过。
+> 最后更新：**2026-11-27 12:05（接手第二十次改动）** · `index.html` **3501 行 / 142,113 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,8 +78,9 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        139434 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ preview.png       139364 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
+├─ index.html        142113 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ avatar.png           803 B  作者头像：从 %APPDATA%/minecraft-desktop-pet/skin.png 裁的 8×8 脸（+帽子层），放大到 160×160 最近邻
+├─ preview.png       142000 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
 ├─ server.js            803 B  极简静态服务（8765，no-store）
 ├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
@@ -241,7 +242,7 @@ body（flex column，`overflow: hidden` —— 整页不滚，只有 .mwrap 滚�
     #empty    空状态（虚线卡片）· flex: 1 1 auto（空栈时 .mwrap 一起 hidden，否则会多出一块空边框）
 
 footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
-  #stAnims  N 个动画（M 启用） | #stBones N 根骨骼 | #stChans N 个通道 | #stHint 拖动行首排序
+  #stAnims  N 个动画（M 启用） | #stBones N 根骨骼 | #stChans N 个通道 | #stHint 拖动行首排序 | #btnAbout 作者（avatar.png + 汉西 · Hancy）
 
 #modal>#modalTitle/#modalClose/#modalBody/#modalFoot
 #toasts   toast 容器
@@ -323,6 +324,7 @@ footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
 | `initImport()` / `ingestFiles()` / `walkEntry()` | 文件选择 / 全页拖拽（含文件夹递归）/ 多动画时弹勾选列表 `pickItems()` |
 | `initPaste()` | 粘贴 JSON 弹窗 |
 | `initExport()` / `exportPayload()` | 导出当前顺序 + 每通道原文（`cells[].channels[].raw`、`usesThis`、`usesMolang`） |
+| `openAbout()` | 「关于这个项目」弹窗：头像 + 汉西 / Hancy / B 站 @小汉西 + vibe coding 说明 + 版权行 |
 | `initDocs()` | 说明弹窗（布局怎么读 / this / override / 关键帧 / 表达式 / 示例库 / 收起骨骼列 / 文件来源） |
 | `applyTheme()` / `initTheme()` | 双主题，跟随 `prefers-color-scheme`，写 `<html data-theme>` |
 | `boot()` | `initTheme → initModal → initSamples → initMatrix → initColbar → initDrag → initImport → initPaste → initExport → initDocs → load() || loadSamples() → render()` |
@@ -482,6 +484,15 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-27 12:05 · 署名（关于弹窗 + 头像）与字号上调
+
+- 用户要求：在页面上声明这是他的 vibe coding 项目 —— 中文名 **汉西**，英文 **Hancy**（姓 Jared，一般不写出），B 站 **@小汉西**；头像用他 Minecraft 皮肤的脸。
+- 头像来源：`%APPDATA%/minecraft-desktop-pet/skin.png`（64×64）。用 ffmpeg 裁 `crop=8:8:8:8`（正脸）+ `crop=8:8:40:8`（帽子层）叠加，`scale=160:160:flags=neighbor` 存成 `avatar.png`（803 B）。显示时一律 `image-rendering: pixelated`。
+- 状态栏最右侧加了作者按钮（16px 头像 + 「汉西 · Hancy」），点开 `openAbout()`：58px 头像、汉西 / Hancy · B 站 @小汉西、vibe coding 说明（「由汉西发起并主导，借助 AI 一起完成」）、示例来源、`© 2026 汉西 Hancy`。
+- 字号整体上调一档（用户：「字体有点小」）：`.num` 12→13、`.expr` 11.5→12.5、`.vec i` 9.5→10、`.boneh` 11.5→12.5、`.chanh` 10→11、`.rh-top .key` 12.5→13.5、`.sumv` 10.5→11.5。代价是行更高，5 行时第 5 行又有一点点压在最终值行后面（可滚动）。
+- `preview.png` 重拍。
+
 
 ### 2026-11-27 00:20 · 顶部说明整块删掉，最终值去掉副标题
 
