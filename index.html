@@ -776,6 +776,8 @@ html[data-theme="light"] .expr.th {
 .sumbar .icon { width: 11px; height: 11px; }
 
 /* 左列收窄：只留 序号 + 抓手 + 启停/删除，标题与徽标收起 */
+/* 收起只改「名字那一列」的列宽，绝不动表格总宽：
+   总宽用 --lbl0（展开时的列宽）算，省下来的 122px 归尾巴列，后面的通道列宽度纹丝不动。 */
 .mtx.col-collapsed { --lbl: 88px; }
 .mtx.col-collapsed thead th.corner,
 .mtx.col-collapsed tbody th.rowh { width: 88px; min-width: 88px; padding: 4px 4px; }
@@ -1300,11 +1302,12 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .mtx tbody tr.sumrow td.cpad { border-top: 1px solid var(--border); }
 /* ---- 转置版：行 = 动画，列 = 骨骼 / 通道 ---- */
 .mtx {
+  --lbl0: 210px;   /* 展开态的名字列宽：表格总宽只按它算，收起时不变 */
   --lbl: 210px;
   --chw: 136px;
-  /* max(容器宽, 各列之和)：容器更宽时余量进尾巴列，通道列永远 var(--chw)；
-     容器更窄时按各列之和撑开、横向滚动。两个分支都不改真实列宽。 */
-  width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw)));
+  /* max(容器宽, 各列之和)：容器更宽时余量进尾巴列；容器更窄时按各列之和撑开、横向滚动。
+     总和里用的是 --lbl0，所以收起左列只是把 122px 让给尾巴列，真实列宽和表格宽度都不动。 */
+  width: max(100%, calc(var(--lbl0) + var(--ncol, 1) * var(--chw)));
 }
 .mtx thead {
   position: sticky;
@@ -1585,7 +1588,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
   .shell { padding: 16px 16px 56px; }
   .statusbar { padding: 0 16px; }
   .docs { grid-template-columns: 1fr; }
-  .mtx { --lbl: 186px; --chw: 128px; width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw))); }
+  .mtx { --lbl0: 186px; --lbl: 186px; --chw: 128px; width: max(100%, calc(var(--lbl0) + var(--ncol, 1) * var(--chw))); }
   .mtx thead th.corner, .mtx tbody th.rowh { width: 186px; min-width: 186px; }
   .mtx thead th.chanh { width: 128px; }
 }
@@ -1647,7 +1650,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
     border-left: 0; border-right: 0; border-radius: 0;
     box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border);
   }
-  .mtx { --lbl: 176px; --chw: 118px; width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw))); font-size: 11.5px; }
+  .mtx { --lbl0: 176px; --lbl: 176px; --chw: 118px; width: max(100%, calc(var(--lbl0) + var(--ncol, 1) * var(--chw))); font-size: 11.5px; }
   .mtx thead th.corner, .mtx tbody th.rowh { width: 176px; min-width: 176px; padding: 6px 8px; }
   .mtx thead th.corner { font-size: 9.5px; }
   .mtx thead tr:first-child th { height: 26px; font-size: 10.5px; }
@@ -1891,7 +1894,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 00:52';
+const BUILD = '11-28 01:04';
 const LS_KEY = 'bedrock-anim-lab.v4';
 const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入 · Ctrl+Z 撤销';
 function applyTheme(t, persist) {
