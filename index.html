@@ -727,6 +727,30 @@ html[data-theme="light"] .expr.th {
 .colbar .cbl .icon { width: 13px; height: 13px; }
 .colbar .cbl b { color: var(--text-2); font-weight: 600; font-family: var(--mono); }
 .colbar .show-all { margin-left: auto; }
+
+/* 表头折叠条：常驻一行 22px，点一下把 <thead>（骨骼行 + 通道行）收起来 */
+.headbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 22px;
+  margin: 0 0 6px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--card);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+}
+.headbar:hover { color: var(--text-2); border-color: var(--border-2); }
+.headbar .hb-caret { font-size: 9px; line-height: 1; transition: transform .15s var(--ease, ease); }
+.headbar[aria-expanded="false"] .hb-caret { transform: rotate(-90deg); }
+.headbar .hb-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mtx.head-collapsed thead { display: none; }
 /* 手机：这条栏当骨骼选择器用（只显示选中的那一根） */
 .colbar.as-picker { gap: 5px; padding: 5px 7px; flex-wrap: nowrap; overflow-x: auto; }
 .colbar.as-picker .cbl { flex: none; color: var(--text-3); }
@@ -1535,6 +1559,13 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   .rh-top .acts .icon-btn .icon { width: 12px; height: 12px; }
   .rh-meta { margin-top: 2px; font-size: 9.5px; }
   .rh-meta .chip { font-size: 9px; padding: 0.5px 3.5px; }
+  /* 一格里的表达式一律单行省略：窄列里换行会把整行撑到 4–6 行高，非常吃空间。
+     想看全文：点格子上的「展开」（长值时出现）或把窗口放大。 */
+  .mtx td.cell .vec span, .mtx td.cell .keys li { min-width: 0; }
+  .mtx td.cell .expr, .mtx td.cell .num {
+    min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
   /* 触屏长按会选中行首文字、弹出系统「复制/全选」菜单，把拖拽手势吃掉 */
   .mtx th, .mtx td {
     -webkit-user-select: none; user-select: none;
@@ -1613,6 +1644,10 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
 
 <div class="shell">
   <div class="colbar" id="colbar" hidden></div>
+
+  <button class="headbar" id="headToggle" type="button" aria-expanded="true">
+    <span class="hb-caret">▾</span><span class="hb-txt">表头 · 骨骼 / 通道</span>
+  </button>
 
   <div class="mwrap" id="mwrap"><div id="matrix"></div></div>
 
@@ -2199,7 +2234,8 @@ const state = {
   stack: [], sel: null,
   vars: {},                  // 用户给 variable.* / query.* 设的值（Blockbench 那种变量占位符），键是完整名
   hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
-  openCells: new Set()       // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
+  openCells: new Set(),      // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
+  headCollapsed: false       // 表头（骨骼行 + 通道行）是否收起，省一屏的竖向空间
 };
 
 /* ---------- 撤销 / 重做 ----------
@@ -2884,9 +2920,33 @@ function render() {
 
   host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>' + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>';
   host.style.setProperty('--ncol', cols.length);
+  host.firstChild.classList.toggle('head-collapsed', !!state.headCollapsed);
   state.allBones = allBones;
   renderColbar(allBones);
+  syncHeadToggle();
   updateStatus();
+}
+
+/* 表头折叠：骨骼行 + 通道行一起收起来，手机上能省 70px 左右 */
+function syncHeadToggle() {
+  const b = $('#headToggle');
+  if (!b) return;
+  const on = !state.headCollapsed;
+  b.setAttribute('aria-expanded', on ? 'true' : 'false');
+  const t = b.querySelector('.hb-txt');
+  if (t) t.textContent = on ? '表头 · 骨骼 / 通道' : '表头已收起 · 点这里展开';
+}
+
+function initHeadToggle() {
+  const b = $('#headToggle');
+  if (!b) return;
+  b.addEventListener('click', () => {
+    state.headCollapsed = !state.headCollapsed;
+    const t = document.querySelector('#matrix > table');
+    if (t) t.classList.toggle('head-collapsed', !!state.headCollapsed);
+    syncHeadToggle();
+    save();
+  });
 }
 
 /* 已隐藏的骨骼：只在有隐藏项时出现；点 chip 恢复单个，右侧一键全恢复 */
@@ -3388,6 +3448,7 @@ function save() {
         enabled: i.enabled, color: i.color
       })),
       hiddenBones: state.hiddenBones,
+  headCollapsed: !!state.headCollapsed,
       vars: state.vars
     }));
   } catch (e) { /* 存不下就算了 */ }
@@ -3406,7 +3467,8 @@ function load() {
       it.color = d.color || STACK_COLORS[0];
       return it;
     });
-    state.hiddenBones = Array.isArray(data.hiddenBones)
+    state.headCollapsed = !!data.headCollapsed;
+  state.hiddenBones = Array.isArray(data.hiddenBones)
       ? data.hiddenBones.filter(b => typeof b === 'string')
       : [];
     state.vars = {};
@@ -3980,6 +4042,7 @@ function boot() {
   initVars();
   initMatrix();
   initColbar();
+  initHeadToggle();
   initHistory();
   initDrag();
   $('#stHint').textContent = HINT_DEFAULT;
