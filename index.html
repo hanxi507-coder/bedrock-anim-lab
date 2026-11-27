@@ -540,7 +540,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   content: '⟂';
   position: absolute;
   right: 6px;
-  bottom: 8px;        /* 原来 3px，整体上移 5px；和右边「展开」按钮错开 */
+  bottom: 4px;        /* 3px -> 4px */
   font-size: 10.5px;
   color: var(--text-3);
 }
@@ -548,7 +548,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   content: '⟂';
   position: absolute;
   right: 6px;
-  bottom: 8px;        /* 同上，整体上移 5px（和灰色那枚对齐） */
+  bottom: 4px;        /* 3px -> 4px（和灰色那枚对齐） */
   font-size: 10.5px;
   color: var(--amber);
 }
@@ -1850,7 +1850,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 01:22';
+const BUILD = '11-28 01:26';
 const LS_KEY = 'bedrock-anim-lab.v4';
 const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入 · Ctrl+Z 撤销';
 function applyTheme(t, persist) {
