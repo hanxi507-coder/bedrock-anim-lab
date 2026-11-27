@@ -776,11 +776,12 @@ html[data-theme="light"] .expr.th {
 
 /* 左列收窄：只留 序号 + 抓手 + 启停/删除，标题与徽标收起 */
 .mtx.col-collapsed thead th.corner,
-.mtx.col-collapsed tbody th.rowh { width: 96px; min-width: 96px; padding: 4px 6px; }
+.mtx.col-collapsed tbody th.rowh { width: 88px; min-width: 88px; padding: 4px 4px; }
 .mtx.col-collapsed tbody th.rowh .rh-top { flex-wrap: wrap; gap: 3px 4px; }
 .mtx.col-collapsed tbody th.rowh .rh-top .key {
-  font-size: 10px; line-height: 1.2;
-  -webkit-line-clamp: 1; overflow: hidden;
+  font-size: 9.5px; line-height: 1.25;
+  display: -webkit-box; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; overflow: hidden;   /* 80px 下也留两行，别只剩 huma… */
 }
 .mtx.col-collapsed tbody th.rowh .rh-meta { display: none; }
 .mtx.col-collapsed tbody th.rowh .rh-top .acts { width: 100%; justify-content: flex-start; gap: 3px; }
@@ -840,14 +841,16 @@ html[data-theme="light"] .expr.th {
 }
 .dragtip .x:hover { color: var(--text); border-color: var(--border-2); }
 
+/* 抓手点阵：两种指针都画，颜色/尺寸完全一致（触屏只是把行首的 mouse 手势关掉） */
+.mtx tbody th.rowh .rh-top::before {
+  content: ''; flex: none; width: 9px; height: 17px; border-radius: 2px;
+  color: var(--text-3); opacity: .8;
+  background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
+  background-size: 4.5px 5.2px; background-position: 0 1px;
+}
 @media (pointer: coarse) {
   .mtx tbody th.rowh { cursor: default; }
-  .mtx tbody th.rowh .rh-top::before {
-    content: ''; flex: none; width: 9px; height: 17px; border-radius: 2px;
-    color: var(--text-3); opacity: .85;
-    background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
-    background-size: 4.5px 5.2px; background-position: 0 1px;
-  }
+  .mtx tbody th.rowh .rh-top::before { opacity: .9; }
 }
 .colbar .hb .icon { width: 11px; height: 11px; opacity: .55; }
 
@@ -1463,7 +1466,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   min-width: 0;
   flex: 1;
   line-height: 1.3;
-  overflow-wrap: normal;
+  overflow-wrap: anywhere;   /* neck_head_movement 这种长 token 允许折行，别被 overflow:hidden 裁掉半个词 */
   word-break: normal;
   cursor: pointer;
 }
@@ -1613,7 +1616,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
   .rh-top .key {
     font-size: 11.5px;
     white-space: normal;
-    overflow-wrap: normal;      /* 只在 <wbr> 的点号处断，不在词中间切 */
+    overflow-wrap: anywhere;    /* 点号优先断，实在放不下才在词中间折，别裁掉半个词 */
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
