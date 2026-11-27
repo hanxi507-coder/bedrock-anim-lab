@@ -509,7 +509,13 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 ## 14. 变更记录（接手后）
 
-### 2026-11-27 22:50 · 拖动仍会闪：根因是「拿带 transform 的 rect 当布局位置」
+### 2026-11-27 23:00 · 行首那列「几行名字叠在一起」：补分隔线 + 顶端对齐
+
+- 现象：手机上「上面那几行还是重叠了」。查证：`th.rowh` 里几行的名字挤在一条连续白带上，原因有两个：
+  1. `th.rowh` 是 `vertical-align: middle`，而每一行的高度由**最长的那个格子**决定（3 行表达式 ≈ 85px），于是名字被垂直居中、浮在行中间，和右侧数据的第一行错位；
+  2. 行首这一列**没有行分隔线**（`.mtx tbody th` 只有 `border-bottom`，被 sticky 背景盖住），几行的名字连成一片，看起来就是"叠在一起"。
+- 改：`th.rowh` 改 `vertical-align: top`、`padding: 6px 10px 7px`、补 `border-top: 1px solid var(--border)`（`:first-child` 除外）、`.rh-top` 加 `overflow: hidden` 防任何溢出。
+- 实测（374 与 1440 两个 iframe 同时量）：行首 `.key` 的顶边距行顶 6–12px（贴着第一行数据），行与行之间无重叠（`ov: []`），名字能读到两行时也不会串到下一行。### 2026-11-27 22:50 · 拖动仍会闪：根因是「拿带 transform 的 rect 当布局位置」
 
 - 用户「还会闪，特别是往下拖的时候和下面的卡片互换那个动画」。物理原因不在渲染时机，而在**测量**：
   1. `place(fresh)` 在 `fresh` 时把 `tr.getBoundingClientRect().top` 当作"布局位置"，但此时元素身上还挂着上一帧的 `transform: translateY(ty)` → 算出来的新 `ty` 把旧的位移又算了一遍。往下换位后元素自身下移一整行，于是**瞬间跳到下一个格位再被 FLIP 拉回**，看着就是"抽一下"。

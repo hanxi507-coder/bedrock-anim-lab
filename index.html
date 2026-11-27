@@ -1410,12 +1410,15 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   touch-action: none;                            /* 触屏：在行首按下就是拖，别让浏览器接管成滚动 */
   width: 210px;
   min-width: 210px;
-  padding: 7px 10px;
-  vertical-align: middle;
+  padding: 6px 10px 7px;
+  vertical-align: top;                           /* 行首贴着这一行的第一行数据，别在行高里居中后"浮"到中间 */
   white-space: normal;
   cursor: grab;                                  /* 整行都能起手拖 */
   box-shadow: none;                              /* 身份色默认不画，避免被读成状态色；见下方 hover / drag */
+  border-top: 1px solid var(--border);           /* 行首列也要有分隔线，否则几行的名字挤在一条白带里 */
 }
+.mtx tbody tr.arow:first-child > th.rowh { border-top: 0; }
+.mtx tbody tr.arow > th.rowh .rh-top { overflow: hidden; }
 .mtx tbody tr.arow > td { cursor: grab; }
 .mtx tbody tr.arow > td button,
 .mtx tbody tr.arow > td .xbtn { cursor: pointer; }
