@@ -1430,6 +1430,16 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 /* 行头里的可点元素要恢复成手型，否则会继承 grab，看着像拖拽 */
 .mtx tbody th.rowh .key,
 .mtx tbody th.rowh .acts button { cursor: pointer; }
+
+/* 图标按钮统一：图标必须在按钮正中心（UA 默认 padding:1px 6px 会把它推偏 2–3px） */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+.icon-btn > .icon, .icon-btn > svg { display: block; }
 .mtx tbody th.rowh.ov { background: color-mix(in srgb, var(--amber) 9%, var(--card)); box-shadow: inset 3px 0 0 var(--amber); }
 .mtx tbody th.rowh.off { background: var(--bg-2); }
 .mtx tbody th.rowh.off .rh-top,
