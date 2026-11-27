@@ -841,16 +841,15 @@ html[data-theme="light"] .expr.th {
 }
 .dragtip .x:hover { color: var(--text); border-color: var(--border-2); }
 
-/* 抓手点阵：两种指针都画，颜色/尺寸完全一致（触屏只是把行首的 mouse 手势关掉） */
-.mtx tbody th.rowh .rh-top::before {
-  content: ''; flex: none; width: 9px; height: 17px; border-radius: 2px;
-  color: var(--text-3); opacity: .8;
-  background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
-  background-size: 4.5px 5.2px; background-position: 0 1px;
-}
+/* 抓手点阵只给触屏：电脑端用 cursor: grab 就够，画出来反而抢注意力 */
 @media (pointer: coarse) {
   .mtx tbody th.rowh { cursor: default; }
-  .mtx tbody th.rowh .rh-top::before { opacity: .9; }
+  .mtx tbody th.rowh .rh-top::before {
+    content: ''; flex: none; width: 9px; height: 17px; border-radius: 2px;
+    color: var(--text-3); opacity: .85;
+    background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
+    background-size: 4.5px 5.2px; background-position: 0 1px;
+  }
 }
 .colbar .hb .icon { width: 11px; height: 11px; opacity: .55; }
 
