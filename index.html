@@ -1800,7 +1800,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
   <span id="stBones">8 根骨骼</span>
   <span class="sep"></span>
   <span id="stChans">12 个通道</span>
-  <span class="r" id="stHint">拖动行首排序 · 拖文件进窗口导入</span>
+  <span class="r" id="stHint">拖动卡片排序 · 拖文件进窗口导入</span>
   <button class="author" id="btnAbout" type="button" title="关于这个项目 · 汉西 Hancy">
     <img class="avatar" src="avatar.png" alt="汉西的 Minecraft 皮肤头像" width="16" height="16">
     <span>汉西 · Hancy</span>
@@ -1887,9 +1887,13 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 01:56';
+const BUILD = '11-28 02:02';
 const LS_KEY = 'bedrock-anim-lab.v4';
-const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入 · Ctrl+Z 撤销';
+/* 触屏只能从行首那一列起手（单元格区域留给横向滑动）；鼠标在整行任意位置都能拖 */
+const TOUCH_ONLY = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+const HINT_DEFAULT = (TOUCH_ONLY
+  ? '按住行首上下拖排序 · 拖文件进窗口导入 · Ctrl+Z 撤销'
+  : '拖动卡片任意位置排序 · 拖文件进窗口导入 · Ctrl+Z 撤销');
 function applyTheme(t, persist) {
   const dark = t !== 'light';
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
@@ -4198,7 +4202,7 @@ function initDocs() {
       ['clock', '时长与循环', '行头显示 <code>animation_length</code>（缺省取最后一帧）和 <code>loop</code> 模式：<code>loop</code> 循环 / <code>hold</code> 停在末帧 / <code>once</code> 播完即止。'],
       ['fx', '事件', '<code>sound_effects</code> / <code>particle_effects</code> 有内容时行头会显示 <code>fx ×N</code>，鼠标悬停看名字。'],
       ['inbox', '示例库', '顶部「示例库」分三组：<strong>bedrock-samples 原生</strong>（默认栈）、<strong>FMBE 基础</strong>、<strong>FMBE 进阶 · 3D 方块</strong>。后两组列的是 wiki 页面里出现的原版动画，JSON 与仓库里的文件一致，没有改写。'],
-      ['keyboard', '操作', '拖动行首换顺序（整块行头都能拖，不必瞄准小圆点；往上/下拖 5px 才算拖，轻点仍是开/关）· 点行标题或眼睛启用/停用 · 点骨骼表头收起该骨骼的通道列 · 点垃圾桶移除这一行 · <kbd>拖文件</kbd>进窗口导入 · 顶部「导出」看当前顺序与所有原始值。'],
+      ['keyboard', '操作', '拖整行换顺序（鼠标：整张卡片任意位置都能拖；触屏：只能按住行首那一列拖。往上/下拖 5px 才算拖，轻点仍是开/关）· 点行标题或眼睛启用/停用 · 点骨骼表头收起该骨骼的通道列 · 点垃圾桶移除这一行 · <kbd>拖文件</kbd>进窗口导入 · 顶部「导出」看当前顺序与所有原始值。'],
       ['brace', '文件来源', '示例逐字取自 bedrock-samples <code>v1.26.50.4</code> 的 <code>resource_pack/animations/*.json</code>。真实文件里有 6 个带 <code>//</code> 注释、不是严格 JSON，直接拖进来也能解析。']
     ];
     openModal('语义说明与图例', '<div class="docs">' + docs.map(d =>
