@@ -9,3 +9,5 @@ _crop*.png
 .workbuddy/
 
 node_modules/
+server-lan.js
+_p*.jpeg
