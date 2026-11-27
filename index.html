@@ -1140,74 +1140,6 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .dropveil .box .icon { width: 22px; height: 22px; color: var(--accent); }
 .dropveil small { font-size: 11.5px; color: var(--text-3); }
 
-/* ============================================================
-   Responsive
-   ============================================================ */
-@media (max-width: 1023px) {
-  .nav { padding: 0 16px; }
-  .shell { padding: 16px 16px 56px; }
-  .statusbar { padding: 0 16px; }
-  .docs { grid-template-columns: 1fr; }
-  .mtx { width: max(100%, calc(186px + var(--ncol, 1) * 128px)); }
-  .mtx thead th.corner, .mtx tbody th.rowh { width: 186px; min-width: 186px; }
-  .mtx thead th.chanh { width: 128px; }
-}
-
-/* 窄屏：导航收成两行、表格瘦身到能看清的最小宽度、去掉外框圆角吃满屏宽 */
-@media (max-width: 767px) {
-  .nav { height: auto; min-height: 52px; padding: 8px 12px; row-gap: 6px; flex-wrap: wrap; }
-  .brand-text small { display: none; }
-  .nav-spacer { display: none; }
-  .nav-actions {
-    width: 100%; gap: 4px; flex-wrap: nowrap;
-    overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
-  }
-  .nav-actions::-webkit-scrollbar { display: none; }
-  .nav-actions > * { flex: none; }
-  .btn { height: 30px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
-  .btn.icon-only { width: 30px; }
-  .btn .icon { width: 14px; height: 14px; }
-
-  .shell { padding: 10px 0 44px; }
-
-  .mwrap {
-    border-left: 0; border-right: 0; border-radius: 0;
-    box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border);
-  }
-  .mtx { width: max(100%, calc(168px + var(--ncol, 1) * 118px)); font-size: 11.5px; }
-  .mtx thead th.corner, .mtx tbody th.rowh { width: 168px; min-width: 168px; padding: 6px 8px; }
-  .mtx thead th.corner { font-size: 9.5px; }
-  .mtx thead tr:first-child th { height: 26px; font-size: 10.5px; }
-  .mtx thead th.boneh { font-size: 11px; padding: 5px 8px; }
-  .mtx thead th.chanh { width: 118px; font-size: 10px; padding: 5px 8px; }
-  .rh-top .key { font-size: 12px; }
-  .rh-meta { font-size: 10.5px; gap: 4px; }
-  .rh-meta .len { display: none; }
-  .rh-meta .cover { display: none; }
-  .rh-meta .chip { font-size: 9.5px; padding: 1px 4px; }
-  .mtx td.cell { font-size: 11px; }
-  .mtx td.cell .vec, .mtx td.cell .keys { line-height: 1.5; }
-
-  .modal { padding: 10px; }
-  .modal-card { max-height: 90vh; }
-  .modal-body { padding: 12px; }
-  .modal-foot { padding: 10px 12px; }
-  .toasts { left: 10px; right: 10px; bottom: 42px; }
-  .toast { max-width: none; }
-  .statusbar { height: 34px; font-size: 10.5px; padding: 0 10px; }
-  .statusbar .r { display: none; }
-  .vars-sec .var-row { grid-template-columns: 1fr; gap: 4px; }
-  .vars-sec .var-in { width: 100%; }
-}
-
-@media (max-height: 380px) {
-  /* 极端矮窗口（例如放大到 200%）留条退路：整页恢复可滚，表格给固定高度，
-     否则 overflow:hidden 会把表格压没。正常高度下永远只有表格这一个滚动容器。 */
-  body { overflow: auto; }
-  .shell { flex: none; }
-  .mwrap, #empty { flex: none; height: 240px; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .001ms !important;
@@ -1240,6 +1172,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   background: var(--bg-2);
 }
 .mtx thead th.corner {
+  position: sticky;
   left: 0;
   z-index: 7;
   width: 210px;
@@ -1352,6 +1285,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 }
 
 .mtx tbody th.rowh {
+  touch-action: none;                            /* 触屏：在行首按下就是拖，别让浏览器接管成滚动 */
   width: 210px;
   min-width: 210px;
   padding: 7px 10px;
@@ -1447,6 +1381,84 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
 .mtx tbody tr.ovon > th { background: color-mix(in srgb, var(--amber) 9%, var(--card)); }
 
 .mtx td.none { text-align: center; color: var(--border-2); font-family: var(--mono); }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 1023px) {
+  .nav { padding: 0 16px; }
+  .shell { padding: 16px 16px 56px; }
+  .statusbar { padding: 0 16px; }
+  .docs { grid-template-columns: 1fr; }
+  .mtx { width: max(100%, calc(186px + var(--ncol, 1) * 128px)); }
+  .mtx thead th.corner, .mtx tbody th.rowh { width: 186px; min-width: 186px; }
+  .mtx thead th.chanh { width: 128px; }
+}
+
+/* 窄屏：导航收成两行、表格瘦身到能看清的最小宽度、去掉外框圆角吃满屏宽 */
+@media (max-width: 767px) {
+  .nav { height: auto; min-height: 52px; padding: 8px 12px; row-gap: 6px; flex-wrap: wrap; }
+  .brand-text small { display: none; }
+  .nav-spacer { display: none; }
+  .nav-actions {
+    width: 100%; gap: 4px; flex-wrap: nowrap;
+    overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
+  }
+  .nav-actions::-webkit-scrollbar { display: none; }
+  .nav-actions > * { flex: none; }
+  .btn { height: 30px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
+  .btn.icon-only { width: 30px; }
+  .btn .icon { width: 14px; height: 14px; }
+
+  .shell { padding: 10px 0 44px; }
+
+  .mwrap {
+    border-left: 0; border-right: 0; border-radius: 0;
+    box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border);
+  }
+  .mtx { width: max(100%, calc(168px + var(--ncol, 1) * 118px)); font-size: 11.5px; }
+  .mtx thead th.corner, .mtx tbody th.rowh { width: 168px; min-width: 168px; padding: 6px 8px; }
+  .mtx thead th.corner { font-size: 9.5px; }
+  .mtx thead tr:first-child th { height: 26px; font-size: 10.5px; }
+  .mtx thead th.boneh { font-size: 11px; padding: 5px 8px; }
+  .mtx thead th.chanh { width: 118px; font-size: 10px; padding: 5px 8px; }
+  .rh-top { gap: 5px; }
+  .rh-top .key {
+    font-size: 11.5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .rh-top .key wbr { display: none; }   /* 窄屏不按点号断行，交给省略号 */
+  .rh-top .acts { gap: 2px; }
+  .rh-top .acts .icon-btn { width: 26px; height: 26px; }
+  .rh-top .acts .icon-btn .icon { width: 13px; height: 13px; }
+  .rh-meta { font-size: 10px; gap: 3px; margin-top: 3px; }
+  .rh-meta .len { display: none; }
+  .rh-meta .cover { display: none; }
+  .rh-meta .chip { font-size: 9.5px; padding: 1px 4px; }
+  .rh-meta .lchip { display: none; }   /* 窄屏省一行：循环图标和 .len 重复 */
+  .mtx td.cell { font-size: 11px; }
+  .mtx td.cell .vec, .mtx td.cell .keys { line-height: 1.5; }
+
+  .modal { padding: 10px; }
+  .modal-card { max-height: 90vh; }
+  .modal-body { padding: 12px; }
+  .modal-foot { padding: 10px 12px; }
+  .toasts { left: 10px; right: 10px; bottom: 42px; }
+  .toast { max-width: none; }
+  .statusbar { height: 34px; font-size: 10.5px; padding: 0 10px; }
+  .statusbar .r { display: none; }
+  .vars-sec .var-row { grid-template-columns: 1fr; gap: 4px; }
+  .vars-sec .var-in { width: 100%; }
+}
+
+@media (max-height: 380px) {
+  /* 极端矮窗口（例如放大到 200%）留条退路：整页恢复可滚，表格给固定高度，
+     否则 overflow:hidden 会把表格压没。正常高度下永远只有表格这一个滚动容器。 */
+  body { overflow: auto; }
+  .shell { flex: none; }
+  .mwrap, #empty { flex: none; height: 240px; }
+}
+
 
 </style>
 </head>
@@ -3102,6 +3114,8 @@ function initDrag() {
     if (!tr0) return;
     /* 按钮 / 展开 / 链接不参与拖拽；其余整行（行头 + 所有格子）都能起手 */
     if (e.target.closest('button, a, input, textarea, select, [data-exp]')) return;
+    /* 触屏：只允许从行首（有 touch-action:none 的那一列）起手，单元格区域留给横向滑动 */
+    if (e.pointerType !== 'mouse' && !e.target.closest('th.rowh')) return;
     const si0 = +tr0.querySelector('th.rowh').dataset.si;
     if (!(si0 >= 0)) return;
     const x0 = e.clientX, y0 = e.clientY;
