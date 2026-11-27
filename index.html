@@ -547,7 +547,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   content: '⟂';
   position: absolute;
   right: 5px;
-  top: 2px;                 /* 放右下角会和「展开」按钮撞在一起，挪到右上 */
+  bottom: 17px;             /* 仍在右下角，但抬到「展开」按钮上方，两者不再打架 */
   font-size: 10.5px;
   line-height: 1;
   color: var(--amber);
@@ -562,6 +562,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 10px;
   color: var(--text-3);
   flex: none;
+  transform: translateY(-1px);   /* 和琥珀 ⟂ 保持一致的"略高一点"观感 */
 }
 .keys.dead-keys { opacity: .42; }
 .keys.dead-keys span { text-decoration: line-through; text-decoration-color: var(--border-2); }
@@ -1410,13 +1411,11 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   white-space: normal;
   cursor: grab;                                  /* 整行都能起手拖 */
   box-shadow: none;                              /* 身份色默认不画，避免被读成状态色；见下方 hover / drag */
-  /* 分隔线用背景画：border 在 border-collapse:collapse + sticky 的组合下容易被邻行背景盖掉 */
-  background-image: linear-gradient(to bottom, var(--border) 0 1px, transparent 1px);
-  background-repeat: no-repeat;
-  background-position: 0 0;
-  background-size: 100% 1px;
+  /* 分隔线用 inset 阴影：背景图会被 border-box 挤压、看着比右边格子的线低一点点，
+     inset 1px 阴影则严格贴着这一行的顶边，和右侧表格线对齐。 */
+  box-shadow: inset 0 1px 0 0 var(--border);
 }
-.mtx tbody tr.arow:first-child > th.rowh { background-image: none; }
+.mtx tbody tr.arow:first-child > th.rowh { box-shadow: none; }
 .mtx tbody tr.arow > th.rowh .rh-top { overflow: hidden; }
 .mtx tbody tr.arow > td { cursor: grab; }
 .mtx tbody tr.arow > td button,
