@@ -753,6 +753,19 @@ html[data-theme="light"] .expr.th {
 .sumtoggle:hover { color: var(--text-2); }
 .sumtoggle .sumfold { display: inline-flex; color: var(--text-3); }
 .sumtoggle .sumfold .icon { width: 12px; height: 12px; }
+/* 名字列窄（手机收起态 88px）时，「已代入 N 个」会顶到右边的通道格里去：
+   允许换行 + 截断，并在 th 上裁掉溢出 */
+.sumtoggle { flex-wrap: wrap; row-gap: 2px; }
+.mtx tbody tr.sumrow th { overflow: hidden; }
+.mtx tbody tr.sumrow .sum-var {
+  min-width: 0; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 手机收起态名字列只有 88px：「已代入 N 个」放不下，去掉量词并缩一号 */
+@media (max-width: 767px) {
+  .mtx tbody tr.sumrow .sum-var { font-size: 10px; }
+  .mtx tbody tr.sumrow .sum-var .sv-unit { display: none; }
+}
 /* 最终值收起来后，底部留一条 22px 的细条，点它展开 */
 .sumbar {
   position: sticky; bottom: 0; z-index: 6;
@@ -933,6 +946,17 @@ body.vscrub .var-in { border-color: var(--accent); }
   color: var(--accent);
   opacity: .8;
 }
+/* 表格里的变量名：点一下直接改值（单元格本身是省略号裁切的，按钮得保持内联） */
+.vref {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0;
+  cursor: pointer; line-height: inherit;
+  border-bottom: 1px dotted currentColor;
+}
+.vref:hover, .vref:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
+.vref:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+@media (pointer: coarse) { .vref { border-bottom-style: solid; border-bottom-width: 1px; } }
+/* 从表格点进来时，那一行高亮一下 */
+.vars-sec .var-row.hit { background: rgba(99, 102, 241, .10); border-radius: 6px; }
 /* 关于弹窗 */
 .about { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
 .about .face {
@@ -1882,7 +1906,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 02:26';
+const BUILD = '11-28 02:40';
 const LS_KEY = 'bedrock-anim-lab.v4';
 /* 触屏只能从行首那一列起手（单元格区域留给横向滑动）；鼠标在整行任意位置都能拖 */
 const TOUCH_ONLY = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
@@ -2730,7 +2754,7 @@ function sumRowHTML(cols, fin) {
   return '<tr class="sumrow">'
     + '<th class="sumh" scope="row" title="按当前顺序叠加：this 读上面的累计，override 先清零；设了值的 variable / query 会代入数字，其余原样留在式子里，t 表示随时间变化">'
     + '<button class="sumtoggle" data-sumtoggle type="button" title="收起这一行">'
-    + '<b>最终值</b>' + (va ? '<span class="sum-var">已代入 ' + va + ' 个</span>' : '')
+    + '<b>最终值</b>' + (va ? '<span class="sum-var">已代入 ' + va + '<span class="sv-unit"> 个</span></span>' : '')
     + '<span class="sumfold">' + ic('chevronsDown') + '</span></button>'
     + '</th>'
     + cols.map(c => sumCellHTML(c, fin, va)).join('')
@@ -2829,7 +2853,10 @@ function fmtNum(n, base) {
 function litHTML(v, base) {
   if (typeof v === 'string') {
     const th = /\bthis\b/.test(v);
-    return '<code class="expr' + (th ? ' th' : '') + '" title="' + escapeHtml(v) + '">' + escapeHtml(v) + '</code>';
+    /* 把 variable./query. 之类的记号包成可点的小按钮：点一下直接打开变量弹窗并定位到它 */
+    const body = escapeHtml(v).replace(/\b((?:variable|query|context|temp)\.[A-Za-z0-9_]+)/g,
+      '<button type="button" class="vref" data-var="$1" title="点一下改这个值">$1</button>');
+    return '<code class="expr' + (th ? ' th' : '') + '" title="' + escapeHtml(v) + '">' + body + '</code>';
   }
   const n = Number(v);
   return '<span class="num">' + (isFinite(n) ? fmtNum(n, base) : '?') + '</span>';
@@ -3283,6 +3310,8 @@ function initMatrix() {
   const host = $('#matrix');
   host.addEventListener('click', e => {
     if (Date.now() - lastDragAt < 300) return;
+    const vr = e.target.closest('.vref');
+    if (vr) { openVars(vr.dataset.var); return; }
     const bmg = e.target.closest('[data-bonemgr]');
     if (bmg) { toggleBoneMgr(); return; }
     const xb = e.target.closest('[data-exp]');
@@ -4079,9 +4108,20 @@ function varsBodyHTML() {
     + sec('已设置但当前栈没用到', orphan, '清空可移除', 'orphan');
 }
 
-function openVars() {
+function openVars(focusName) {
   openModal('变量取值', varsBodyHTML(),
     '<button class="btn" id="varsClear">全部清空</button><button class="btn primary" data-close="1">完成</button>');
+  if (!focusName) return;
+  /* 从表格里点变量名进来：滚到那一行、聚焦输入框，并短暂描边提示 */
+  const inp = document.querySelector('#modalBody .var-in[data-var="' + focusName.replace(/["\\]/g, '\\$&') + '"]');
+  if (!inp) return;
+  const row = inp.closest('.var-row');
+  if (row) {
+    row.classList.add('hit');
+    row.scrollIntoView({ block: 'center' });
+  }
+  inp.focus();
+  inp.select();
 }
 
 /* 写入一个变量值（null = 清掉）；重绘按 ~16ms 节流。
