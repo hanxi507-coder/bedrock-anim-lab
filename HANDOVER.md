@@ -1,1070 +1,4123 @@
-# Bedrock Animation Stack · 接手指南
-
-> 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-27 13:20（接手第二十六次改动）** · `index.html` **3796 行 / 153,583 B**，`node --check` 通过。
-> 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
-
----
-
-## 0. 三分钟上手
-
-```powershell
-# 1) 语法自检（只校验内联 <script> 那一段）
-$p='D:\scripts\bedrock-anim-lab\index.html'
-$s=[IO.File]::ReadAllText($p)
-$i=$s.IndexOf('<script>'); $j=$s.LastIndexOf('</script>')
-[IO.File]::WriteAllText('D:\scripts\bedrock-anim-lab\_check.js',$s.Substring($i+8,$j-$i-8),[Text.UTF8Encoding]::new($false))
-node --check 'D:\scripts\bedrock-anim-lab\_check.js'; "check=$LASTEXITCODE"
-
-# 2) 本地预览（也可以直接双击 index.html，无需服务）
-node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/index.html
-```
-
-- 单文件、零依赖、零 CDN、全部内联；**双击 index.html 也能用**（没有 fetch / 没有 module）。
-- 文件编码 UTF-8 **无 BOM**；文件里既有 LF 也有少量 CRLF，批量脚本请用 `[IO.File]::ReadAllText/WriteAllText` + `UTF8Encoding($false)`，不要用会改行尾的编辑器一键格式化。
-- 仓库已 `git init`（分支 `main`，作者取本机账号）。**改大块之前先 `Copy-Item` 一份备份**（血的教训见 §12），改完立刻 `commit`。
-
----
-
-## 0.5 接手速查（WB 交接笔记 + dsh 核对）
-
-| 事项 | 结论 |
-| --- | --- |
-| 看“接手后到底改了什么” | `git diff 0eeaf25 HEAD` —— `0eeaf25` 是 `baseline: v4 矩阵版`。**信 diff，别信文档里的行号**（行号会漂，当前 `index.html` 3796 行 / 153,583 B） |
-| 提交数口径 | WB 记的是 52 条；dsh 这边 `git rev-list --count --all` = **32**（单分支 `main`，无其它 ref）。数量对不上多半是中途 `--amend`/重建过分支，内容没丢——以 diff 为准 |
-| `.workbuddy/memory/` | WB 的会话笔记目录，只在 WB 侧完整；本机这份几乎是空的，**别依赖它**，要点都已镜像进 §14 |
-| B 站 UID | 文档里刻意清掉了（commit `89e3297`）；真值在代码 `openAbout()` 的链接上（`index.html` 约 3722–3730 行）。要改只改那里，别写回文档 |
-| 浏览器验证环境 | 只有 **Edge Profile 1** 装了扩展；断连时的恢复步骤见 §14 的 12:32 条目（MV3 worker 约 10s 休眠 / daemon revoked / `~/.bsk/local-*`） |
-| 动语义之前 | 先读 §5。`this` / `override_previous_animation` / 累加是这套东西的灵魂，历史上两次「看起来是 bug 其实是语义」都出在这里 |
-| 文档习惯 | 每轮改完在 §14 追一条：用户原话 + 做法 + 验证数据 + commit。这份文档的价值全靠这个习惯 |
-
----
-
-## 1. 这是什么 / 用户要什么
-
-用户的原话（第一轮）：
-
-> 给我做一个可交互网页，用来演示 minecraft 基岩版里资源包动画 json 的作用，要显示所对应骨骼的 position, rotation, scale 的 xyz 通道，支持导入动画 json，支持动画顺序可拖动，有 `override_previous_animation` 和 `-this` 等覆盖性操作的标识。
-
-经过四轮返工，现在的形态是：
-
-**一张矩阵表**——**行 = 一段动画**（行首可拖动换序，上面的行先算），**列 = 骨骼 → 通道**（`position` / `rotation` / `scale`，固定顺序），**格子里显示这段动画 JSON 里这一通道的原文**（`variable.*` / `query.*` / `this` 一律不代入数字，原样摆出来），并把两件“覆盖类”语义做成可见标记：
-
-| 标记 | 含义 |
-| --- | --- |
-| 蓝色表达式 | 这一条轴（x/y/z 单条）的原文里出现 `this` |
-| 琥珀色顶边 | 这一行带 `override_previous_animation: true`：它碰到的骨骼，上面的累计到这里切断（行顶一条 2px 琥珀线 + 行头琥珀底色）。**该行被眼睛停用时线不出现**（见 §5.2） |
-| 格子划掉 + `⟂` | 这一格被下面的某一行 override 抹掉了（`⟂` 在格子**右下角**，不是右上角） |
-| 单轴划掉 + 右侧小 `⟂` | 这一条轴被下面的 `- this` 写成了绝对值，上面的累积不算了（三条轴都这样时按整格划掉，只画一个 `⟂`） |
-| 收起的骨骼列 | 点骨骼表头可把该骨骼的通道列收起来，矩阵上方出现「已隐藏 N 根骨骼」+ 恢复按钮；**只影响显示，不参与判定** |
-| 斜纹格 | 这段动画**压根没有**这根骨骼（`·` 则是「有骨骼但没写这个通道」）；行头 `骨骼 4/8` 是覆盖率，悬停看具体漏了哪几根 |
-
-**长值默认折叠，但可以展开**（2026-11-26 16:42 定稿）：单轴超过 44 字符、或关键帧超过 4 个的格子，默认只显示一行（`nowrap` + 省略号）/ 前 3 帧，格子右下角有 `展开` 按钮；点开后完整换行、按钮变 `收起`。**不是静默截断**——每个被折叠的格子都明确给了入口，状态在 `state.openCells`（内存）。短值（`variable.tcos0 * -1.4`、`-this + 10` 这类）永远完整显示，不会被折。
-
-早一点的中间版本曾经「一律完整显示」，行高会飙到 338px（`player.sleeping` 的 root.position 一行 140 多字符），所以又收回来了——**但收法是给按钮，不是改回 `slice` 吞掉**。
-
-一句话对比：**`this` 是“往上读到哪”，`override` 是“往上全抹掉”。换顺序 = 换结果。**
-
----
-
-## 2. 需求演进（别再走回头路）
-
-| 版本 | 形态 | 结局 |
-| --- | --- | --- |
-| v1 | 3D 姿态视口 + 时间轴 + 通道检查器 + 卡片栈 | 用户否掉：“像专业建模软件”“中间那个玩家姿态展示的窗口不需要”。备份在 `_v1-viewer.html` |
-| v2 | 只剩可拖拽的动画卡片流（卡片内列骨骼/通道/值） | 方向对了，但用户进一步要求“原始值 + 列排开” |
-| v3 | 视觉重做：design tokens、双主题、Lucide 线图标、响应式 | 保留至今（样式层） |
-| v4（当前） | 行列转置成矩阵：行=动画、列=骨骼/通道；格子=原文 | 当前形态 |
-
-用户明确否决过的方向（**不要自作主张加回来**）：
-
-1. 3D 预览 / 姿态窗口；
-2. 播放器、时间轴、播放头、速度/循环控件（“先不要这个播放器的效果”）；
-3. 卡片式布局（“最上面那个…卡片式的”已换成矩阵）；
-4. 在示例库里写 Molang 说明文字（“molang里的不要求写，只写动画名及原版动画的json即可”）；
-5. 整格/整通道标色（“不要整个，因为有的是只有某些通道里有this而其他是单纯数值”）→ 只标**含 `this` 的那一条轴**；
-6. “一键示例”这种入口（“有点多余了，不知道它是干什么用的”）→ 已删除；
-7. 多余的确认步骤（“我想要的是那种一键选择示例然后动画栈里就会自动更新”）→ 示例库改成**勾选即生效**。
-
----
-
-## 3. 文件清单
-
-```
-D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        153583 B  ← 全部交付物（HTML+CSS+JS 内联）
-├─ bili.png             5.8 KB 哔哩哔哩头像（i0.hdslb.com 拉下来 → 64×64 PNG）
-├─ avatar.png           803 B  作者头像：从 %APPDATA%/minecraft-desktop-pet/skin.png 裁的 8×8 脸（+帽子层），放大到 160×160 最近邻
-├─ preview.png       139615 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
-├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
-├─ vars.png          145973 B  变量取值弹窗截图（深色，variable.tcos0 = 40 / query.life_time = 0.5）
-├─ compare-override.png  119169 B  两种作废画法（有底色 vs 划线）的上下对比图
-├─ server.js            803 B  极简静态服务（8765，no-store）
-├─ _v1-viewer.html   124345 B  v1（3D 版）备份，不要拿去改
-├─ HANDOVER.md                 本文
-├─ .gitignore / .gitattributes 忽略 _check.js / _backup；**关掉一切行尾转换**（`* -text`）
-└─ _backup/index-2026-11-26-1401.html   改 bug 前的手工备份（与基线 commit 同内容）
-```
-
----
-
-## 4. 数据来源（重要）
-
-- 本地完整仓库：`%USERPROFILE%\Desktop\claude\bedrock-samples-v1.26.50.4-full\`
-  动画在 `resource_pack\animations\`，共 143 个 json。
-- 示例库里的 12 条定义是**逐字从这些文件抄出来的**（不是编的）：
-  `humanoid.animation.json`、`armor_stand.animation.json`、`player.animation.json`、
-  `creeper.animation.json`、`ender_dragon.animation.json`、`warden.animation.json`、
-  `parrot.animation.json`、`minecart.animation.json`。
-- FMBE 的分组依据：`https://wiki.bedrock.dev/commands/display-entities`（“A New Way to Create Display Entities”）。
-  FMBE 不写新动画，而是把**原版动画当 Molang 载体**，用
-  `/playanimation @e[tag=wiki:fmbe] <原版动画> none 0 "<molang>"` 往里写 `v.*`。
-- **组内顺序 = 该页 `render.mcfunction` 里 `/playanimation` 的先后**，一条都不能乱：
-  `player.sleeping → creeper.swelling → ender_dragon.neck_head_movement → warden.move → player.attack.rotations → parrot.moving → minecart.move → parrot.dance`。
-  之前把 `parrot.dance` 排在 `minecart.move` 前面（错：zpos 会抢在 ypos 之前算），2026-11-26 已改正。
-- wiki 里写的是 `animation.minecart.move.v1.0`，但 bedrock-samples v1.26.50.4 的 `minecart.animation.json` 里键名就是 `animation.minecart.move`（无 `.v1.0`）——**以文件为准**，别照 wiki 改名。
-- 注意：`web_fetch` 在本机被 DNS 劫持（GitHub 解析到 198.18.x.x），但 **`Invoke-WebRequest` 走系统代理（127.0.0.1:12000）是通的**。要联网抓资料用 shell，别用 web_fetch。
-
----
-
-## 5. 语义规则（这个项目的灵魂，改代码前必须理解）
-
-### 5.1 `this` —— 不是后缀，是表达式里的项
-
-真实资源包写法（**这就是用户反复强调的点**）：
-
-```json
-"animation.humanoid.sneaking":  { "bones": { "body": { "rotation": ["0.5 - this", 0, 0] } } }
-"animation.armor_stand.athena_pose": { "bones": { "body": { "rotation": ["-this", "-this", "-this + 2"] } } }
-"animation.player.sleeping":    { "override_previous_animation": true,
-                                  "bones": { "head": { "rotation": ["30.0 - this", "-this", "-this"] } } }
-```
-
-`this` = **该骨骼该通道、在当前行之前所有行累积出来的值**。所以：
-
-| 写法 | 结果 |
-| --- | --- |
-| `-this` | 把这条轴清零（不管上面叠了多少） |
-| `0.5 - this` | 把这条轴设成绝对值 0.5 |
-| `-this + 2` | 绝对值 2 |
-| `variable.x - this` | 用 variable.x 直接替换累计值 |
-
-> 注意这里的前提：同一通道的多行是**相加**的，`this` 读到的是加到现在的结果，所以 `-this` 才等于清零。底部「最终值」行就是按这个模型算的（详见 §5.5）。
->
-> 老版本的实现曾把 `-this` 当成**通道键后缀**（`rotation-this`），那是错的，已彻底移除。现在只认表达式里的 `this` 标识符。
-
-**UI 怎么标「被它抹掉」**（2026-11-26 加）：只要某个轴上的 `this` 是**系数 -1 的线性项**，这一轴就等于写成绝对值，上面所有行在这一轴上的累积都不再计入 → 上面的格子划掉。
-
-判定在 `axisCancels()`，用压掉空白后的正则 `/(^|[^*/])-this(?!\*|\/)/`：
-
-| 表达式 | 算不算「写成绝对值」 |
-| --- | --- |
-| `-this` / `0.5 - this` / `30.0 - this` / `variable.x - this` | ✅ 算 |
-| `-this * 0.5` / `2 * -this` / `this * 0.5` / `this + 5` | ❌ 不算（还依赖累计值） |
-
-`buildMatrix()` 会算出 `shadow`（`bone|base|ax → 最后一个抵消行的 si`），`cellHTML()` 拿它决定哪几轴画成 `.cut`。所以 `athena_pose` 会把 `move`/`bob` 的四肢旋转划掉 —— 那是真的被它写成绝对值了，不是渲染错误。
-
-### 5.2 `override_previous_animation`
-
-这一行带 `true` 时，它先把自己碰到的骨骼清成 `0/0/0`（scale 是 `1/1/1`），再写自己的值 —— 也就是**把上面所有行在这些骨骼上的累积全抹掉**。
-
-在矩阵里表现为：
-- 这一行**顶边一条 2px 琥珀线**（`tr.ovon > th/td` 的 `border-top`）+ 行头琥珀底色，表示「上面的累计到这里切断」；被它抹掉的格子是**淡琥珀底（6%）+ 琥珀色划掉 + 琥珀 ⟂**；而被 `- this` 写成绝对值的格子**不铺底**、只有灰色划掉 + 灰 `⟂`。两种「作废」靠有无底色区分 —— 用户明确要求这个区分（否则分不清是 override 还是 this 干的）。
-  - 23:20 之前是一条通栏文字横带，嫌占高度；23:30 改成行头里一句「head, root 从这里重算」，用户嫌多余；23:40 彻底改成纯视觉。骨名不再显示在行里，改到行头 `override` 芯片的 `title`（`badgesFor()`）和 `th` 的 `aria-label` 里；
-- 被抹掉的格子（`deadAt()`）加 `.dead`，文字划掉（透明度 .42）+ **右下角** `⟂`。
-
-**停用（点眼睛）时不生效**：横带不出现，上方格子也不再划掉。实现上 `buildMatrix()` 给每行算了两个位：
-`ov`（这段动画是否带 override，身份，停用也还是）与 `ovOn`（此刻是否真的在生效 = `ov && enabled`）；
-`bounds` 只收 `ovOn` 的行，行头那块说明也用 `r.ovOn` 控制。改这里时两个位别混用 —— 2026-11-26 之前只判了 `ov`，
-导致「停用 override 行后横带照画、下面照划」，与「停用行不参与判定」自相矛盾。
-
-### 5.3 累加规则（概念层，当前 UI 只展示原文不做数值）
-
-- `position` / `rotation`：逐轴**相加**；
-- `scale`：逐轴**相乘**（基准 1）；
-- 权重 `applyWeight(base, v, w)`：`scale → 1 + (v-1)*w`，其余 `v*w`（权重滑杆已在 v4 移除，函数是遗留）。
-
-### 5.4 关键帧
-
-通道值可以是静态数组，也可以是关键帧对象：
-
-```json
-"rotation": { "0.0": [0,0,0], "0.5": { "pre": [0,0,0], "post": [10,0,0] }, "1.0": [10,0,0] }
-```
-
-矩阵里对关键帧：**默认先列前 3 帧 + `… 共 N 帧`，点格子右下角的「展开」看全部**（2026-11-26 下午定稿：中午一度改成全列，行太高，又加回了折叠——但这次是显式的、能一键展开，不是静默吞掉）。时间标在行首，`pre ≠ post` 的那一帧标琥珀色（跳变点）。逻辑在 `chanHTML()`：
-
-```js
-const ks = clipped ? ch.keys.slice(0, 3) : ch.keys;   // clipped = isLongChannel() && !state.openCells.has(key)
-return '<div class="keys">' + ks.map(line).join('')
-  + (clipped ? '<span class="more">… 共 ' + ch.keys.length + ' 帧</span>' : '') + '</div>';
-```
-
-真实数据里 88% 的通道 ≤ 8 帧，但 bedrock-samples 里最长有 **52 帧**（`bee.animation.json` 的 `leftwing_bone / rotation`）。
-
-### 5.5 「最终值」行：符号叠加，不代入数字
-
-表格底部那一行是把**启用中的行**按顺序叠起来的结果。用户定过两条规矩，缺一不可：
-
-1. **不代入时间**（「最终值和时间没有关系」）→ 关键帧那种随时间变的量只记作 `t`；
-2. **不代入数字**（「有 query 和 variable，不用写成数字形式，直接带着」）→ 式子里的 `variable.*` / `query.*` 原样留在结果里，只做化简和抵消。
-
-实现（`computeFinal()`，无参数）：
-
-```js
-const e = [0,1,2].map(i => {
-  let row = astFrom(ch.value[i]);                 // 原文 → AST
-  if (exprUsesThis(ch, i)) row = astSub(row, prev.e[i]);   // this := 上一行结果
-  if (w !== 1) row = …乘权重…;
-  return astSum(prev.e[i], astFold(row));         // ★ 累加，不是覆盖
-});
-```
-
-**累加语义**（这点很关键，改动过一次）：引擎里同一通道的多行是**相加**的，`this` 读到的是加到现在的结果。所以 `-this` 等于「把这条轴清零」，`0.5 - this` 等于「设成绝对值 0.5」，`-this + 10` 等于「设成 10」——app 里 §5.1 的说明就是这么写的，早先按「覆盖」算会得到 `-62` 这种数，是错的。
-
-`astSum(prev, row)` 会把两边摊平成项列表，**把结构相同、符号相反的两项直接消掉**（`this` 与 `-this` 是同一个对象引用，所以 `=== ` 就能判），常量项合并，最后重建表达式并折叠。效果：
-
-| 情形 | 结果 |
-| --- | --- |
-| `var.tcos0` + 72 + `10 - this`（this = var.tcos0 + 72） | `10`（未知量自己消掉，不给数字也能得出确定值） |
-| `-90` / `0` / `-3.1` 这类纯常量 | 直接是数字 |
-| `24 * math.cos(query.body_y_rotation) * …` | 原样带着 `query`，不硬算 |
-| 关键帧通道 | `t`（`TV_NODE` 占位；后面若有 `-this` 也会被消掉） |
-
-渲染：`astText()`——`num` 走 `fmtV()`，其余走 `astPrint()`（带优先级括号、`math.cos(x)` 这种函数调用格式）。太长（> `LONG_EXPR`）的格子加 `.clip` + `展开`，和普通单元格同一套。
-
-**已删除的死代码**：`sampleChannel` / `num` / `hermite` / `applyWeight` / `animLocalTime` / `baseCtx` / `MOLANG_VARS` / `evalMolang`（现在只需要 `Molang.compile` 拿 AST、`Molang.evalAst` 折叠常量）。不要再把「采样某一帧」那套加回来。
-
----
-
-## 6. 页面结构
-
-```
-header.nav
-  .brand（logo + 标题 + 副标题）
-  #btnImport  导入动画（primary）
-  #btnPaste   粘贴
-  #btnSamples 示例库
-  #btnExport  导出（icon）
-  #btnDocs    说明（icon）
-  #btnTheme   深浅主题（icon，内含 #icoThemeDark / #icoThemeLight）
-
-body（flex column，`overflow: hidden` —— 整页不滚，只有 .mwrap 滚）
-  header.nav
-  main.shell（flex: 1 1 auto; min-height: 0; 自身也是 flex column）
-    #colbar   已隐藏骨骼提示栏（默认 hidden：`已隐藏 N 根骨骼` + 骨骼 chip + 全部显示）· flex: none
-    .mwrap > #matrix   矩阵表（.mtx）· flex: 1 1 auto; min-height: 0; overscroll-behavior: contain
-      └ tbody 最后一行 tr.sumrow = 最终值（sticky bottom；th 里是「最终值 · 不代入时间」，没有时间控件）
-  body 末尾动态挂 .bonemgr（骨骼开关面板，点矩阵左上角「骨骼」按钮弹出）
-    #empty    空状态（虚线卡片）· flex: 1 1 auto（空栈时 .mwrap 一起 hidden，否则会多出一块空边框）
-
-footer.statusbar（fixed 40px，所以 .shell 底部留 56px）
-  #stAnims  N 个动画（M 启用） | #stBones N 根骨骼 | #stChans N 个通道 | #stHint 拖动行首排序 | #btnAbout 作者（avatar.png + 汉西 · Hancy）
-
-#modal>#modalTitle/#modalClose/#modalBody/#modalFoot
-#toasts   toast 容器
-#dropveil 全页拖拽遮罩
-#fileInput hidden 的文件选择器
-```
-
----
-
-## 7. 代码地图（行号为当前文件，改动后会漂）
-
-### 7.1 常量与数据
-
-| 位置 | 内容 |
-| --- | --- |
-| L801 | CSS 里的 `/* ---------- 示例库 ---------- */`（**注意：JS 段也有同名注释，用 IndexOf 定位极易踩坑，见 §12**） |
-| L1267 | `ICON`：全部内联 SVG（Lucide 风格，`class="icon"`，stroke 1.75） |
-| L1300–1301 | `THEME_KEY='bedrock-anim-lab.theme'`、`LS_KEY='bedrock-anim-lab.v4'` |
-| L1701 | `STACK_COLORS`（行首圆点/色条配色，8 色循环） |
-| L1788 | `SAMPLE_GROUPS`：`{id,title,note,keys[]}`，三组 core / fmbe / adv，keys 引用同一份 `SAMPLES` |
-| L1819 | `SAMPLES`：12 条 `{key, group, label, note:"", file, on, def}`，`on:true` 的 5 条构成默认栈 |
-| L1850 | `state = { stack: [], sel: null, hiddenBones: [] }` |
-
-> 上面的行号是 2026-11-26 14:52 的；文件一改就会漂，**优先按名字搜**。
-
-### 7.2 解析
-
-| 函数 | 职责 |
-| --- | --- |
-| `parseAnimFile(json, fileName, origin)` | 支持 `{animations:{...}}` 包装或裸 `{bones:{...}}` |
-| `makeItem(animKey, def, fileName, origin)` | 产出 `{id, animKey, def, fileName, origin, channels[], boneSet, bones[], warnings[], events[], loop, length, startDelay, blendWeight, flags{override,hasThis,hasMolang,hasJump,hasCatmull,hasEvents}, enabled, weight, color}` |
-| `makeChannel(bone, base, raw, rawKey, legacyKey)` | 通道对象 `{bone, base, rawKey, legacyKey, kind:'static'|'keyframed', keys, value, src, flags{molang,thisRef,jump,catmull,unresolved}, times}` |
-| `parseKeys(raw)` | 静态数组 / 关键帧对象两条分支，并标记 `thisRef`（`/\bthis\b/` 命中） |
-| `looseJSON(src)` + `parseJSONish(text)` | **真实文件必需**：bedrock-samples 里有 6 个 json 带 `//` 注释或尾逗号（bee/cat/cat/person 等），`JSON.parse` 会直接失败 |
-
-### 7.3 矩阵渲染
-
-| 函数 | 职责 |
-| --- | --- |
-| `buildMatrix()` | 汇总 → `{rows, groups, cols, bounds, allBones}`。`rows` = 动画行（顺序即 `state.stack`），`groups` = 骨骼分组（**已按 `state.hiddenBones` 过滤**），`cols` = 骨骼 × 通道列，`bounds` = 生效中（`ovOn`）的 override 行，`allBones` = 数据里出现的全部骨骼（给恢复栏用，不受隐藏影响） |
-| `boneRank()` / `BONE_RANK` / `CH_ORDER` | 列排序：`root, body, head, hat, cape, back, leftarm, rightarm, leftleg, rightleg, leftitem, rightitem` 优先，其余按字母；通道固定 `position, rotation, scale` |
-| `deadAt(bone, si, bounds)` | 下方是否存在生效中的 override 行且碰到该骨骼 → 该格划掉 |
-| `computeFinal()` | 无参数，按顺序把各行的表达式**相加**成每个通道的 AST（override 先清零、`this` 代入、`blend_weight` 乘权重），返回 `Map<'bone|base', {e:[AST,AST,AST], by}>` |
-| `astFrom` / `astSub` / `astFold` / `astSum` / `astPrint` / `astText` | 符号层：原文转 AST、把 `this` 换成上一行 AST、常量折叠、相加并抵消同类项、按优先级打印、单元格文本（数字走 `fmtV`） |
-| `sumRowHTML(cols, fin)` / `sumCellHTML(col, fin, vaCount)` | 底部「最终值」行：左侧只写「最终值」（2026-11-27 去掉了「不代入数字」副标题）+ 设了变量时一个小角标「已代入 N 个」；`vaCount > 0` 时每条轴先试 `astNumeric()`，能折叠成常数就显示数字、否则退回符号式；折叠判定看**显示文字**长度（代完只剩 `24` 就不给「展开」） |
-| `exprUsesThis(ch, ax)` / `identVec(base)` | 判断某条轴是否读 `this`（用于脏值传播）/ 给通道的单位元（0 或 1） |
-| `axisCancels(ch, ax)` / `CANCEL_THIS` | 这一轴的值是不是「被 `- this` 写成绝对值」（系数 -1、没被乘除）→ 供 `shadow` 用 |
-| `fmtNum(n, base)` | 数字格式化（rotation / 时间 2 位，其余 3 位，去尾零） |
-| `litHTML(v, base)` | 单条轴渲染：字符串 → `<code class="expr">`，含 `this` 再加 `.th` 蓝色；数字 → `.num` |
-| `chanHTML(ch, base, cuts, clipped)` | 一个通道 → x/y/z 三行；`cuts[ax]` 是抵消行号时该轴加 `.cut` + 右侧小 `⟂`；`clipped` 时关键帧只渲染前 3 帧 + `… 共 N 帧`，整通道被抵消时加 `.dead-keys` |
-| `badgesFor(item)` / `rowHead(r, allBones)` | 行首：抓手、序号、动画名、时长、**覆盖率 `骨骼 4/8`**（title 列涉及/未涉及）、loop 图标、chips（override / this / molang / keyframe / fx）、眼睛（启停）、垃圾桶（删除） |
-| `cellHTML(row, col, bounds, shadow)` | 单格：没有该通道时输出 `·`（`.none`）或斜纹（`.bnone`，连骨骼都没有）；有值时按 override（整格 `.dead`）与 `shadow`（逐轴 `.cut`）上标记；长值加 `.clip` + 「展开」按钮 |
-| `isLongChannel(ch)` / `LONG_EXPR` | 单轴字符串 > 44 字符，或关键帧 > 4 个 → 算「长」，默认折叠 |
-| `toggleCell(key)` | 展开/收起单格，key = `item.id|骨骼|通道`，存在 `state.openCells`（内存，不落盘）；重建后把焦点还给同一个按钮 |
-| `collectVarNames()` / `usedVarCount()` / `hasVars()` | 栈里出现过的 `variable.* / query.* / temp.* / context.*`（**含停用行**，停用了也允许先设值）、真正被用到且已设值的数量（决定最终值要不要代数字）、是否设过任何值 |
-| `astApplyVars(n)` / `astNumeric(n)` | 把 `state.vars` 里已知的标识符节点换成 `num` 节点；整棵 AST 都是常数就返回数字，否则 `null`（保留符号式） |
-| `varsBodyHTML()` / `varRowHTML(name)` / `openVars()` / `initVars()` | 「变量」弹窗：按 variable / query·其他 / 已设置但没用到 三段列输入框，`input` 事件即时写 `state.vars` + `render()` + `save()`；清空输入即删除该值 |
-| `snapRows()` / `playRows(snap)` / `renderFlip()` | 换序动画：重建前记下每行 `top`，重建后把行从旧位移 `translateY` 拉回 0（220ms）；`renderFlip()` = 量 → render → 播。`prefers-reduced-motion` 时跳过，标签页在后台（rAF 被挂起）有 90ms 兜底 |
-| `render()` | 重建整张表 + 写 `--ncol`（列数）+ 切换 `#empty` / `#mwrap`（空栈时两个都 hidden）+ 调用 `renderColbar()` |
-| `renderColbar(allBones)` | 画「已隐藏 N 根骨骼」栏：只列当前数据里真的存在、且被隐藏的骨骼；每个是一个 `data-show` 按钮，右侧「全部显示」 |
-| `setBonesHidden(next, label)` | 骨骼显隐的唯一入口：一次改完 `state.hiddenBones` 再 `histPush` + `render` + `save`，批量操作不刷一堆历史 |
-| `soloBone(bone)` | Alt+点表头：只留这一根；已经是「只看它」就还原成全部显示 |
-| `toggleBoneMgr()` / `refreshBoneMgr()` / `closeBoneMgr()` / `placeBoneMgr()` | 骨骼面板：开/关、重画芯片、跟着按钮定位（`scroll` 捕获阶段 + `resize` 重新定位） |
-| `hideBone(bone)` / `showBone(bone)` | 隐藏 / 恢复单根骨骼的列，`render(); save()`，隐藏时 toast 提示去哪恢复 |
-| `updateStatus()` | 写状态栏（**只统计启用行的骨骼/通道，不受隐藏影响**） |
-
-### 7.4 交互
-
-| 函数 | 职责 |
-| --- | --- |
-| `initDrag()` | 跟手拖拽换序（手机 app 那种）：**整行任意位置**都能起手（`button` / `[data-exp]` / 链接输入框除外），过 5px 阈值才进拖拽。被拖的行加 `.lift`，`translateY` 贴着指针走；指针越过别的行中线时**立刻改 `state.stack` 并 `render()`**，其它行用 FLIP 滑到新位置（190ms），被拖的行自己重新贴回指针。松手才 `save()` + toast；拖完 300ms 内的 click 被 `lastDragAt` 吞掉 |
-| `initMatrix()` | 表内点击委托：点骨骼表头 → `hideBone()`；`[data-act]` = toggle / remove。键盘：骨骼表头聚焦后 Enter / 空格隐藏，抓手聚焦后 ↑↓ / Home / End 换序 |
-| `toggleItem()` / `removeItem()` | 启停 / 删除一行 |
-| `initColbar()` | 「已隐藏」栏点击委托：`[data-show]` → `showBone()`，`#colShowAll` → 清空 `state.hiddenBones` |
-| `initHistory()` / `undo()` / `redo()` | Ctrl+Z / Ctrl+Y（含 Ctrl+Shift+Z）+ 顶栏两个箭头。快照存在 `hist.{past,future}`，只记 item 引用 + 启停 + `hiddenBones`，上限 80 步；输入框内不抢浏览器自己的撤销 |
-| `histPush(label)` / `histApply(snap)` / `syncHistUI()` | 每个会改栈的动作在动手**之前** push 一条带中文 label 的快照；`histApply` 回放时 `assignColors → render → save → libSyncRows`（弹窗开着也同步勾选） |
-| `initSamples()` | 示例库：`click` 委托处理「全选」「替换整栈」「清空」；`change` 处理单个复选框 → `libToggle()` → `libSyncRows()` |
-| `libToggle(key, on)` | **勾上即加入**（`newItems` + 强制 `enabled = true`），**取消即移除** |
-| `libSyncRows()` | 按 `state.stack` 回写弹窗里的勾选态 / `.in-stack` / 「已在栈里」标签 |
-| `libGrabGroup(id)` | **替换整栈**：`state.stack = ` 这一组（顺序 = `g.keys` 顺序），其他动画全删；`assignColors()` 重排配色；toast 报「移除 N 个」。（旧行为是「追加缺的」，2026-11-26 按用户要求改成替换） |
-| `loadSamples()` | 载入默认示例栈（`SAMPLES.filter(s => s.on)`）——**只在 boot 首次、localStorage 为空时自动调用** |
-| `initImport()` / `ingestFiles()` / `walkEntry()` | 文件选择 / 全页拖拽（含文件夹递归）/ 多动画时弹勾选列表 `pickItems()` |
-| `initPaste()` | 粘贴 JSON 弹窗 |
-| `initExport()` / `exportPayload()` | 导出当前顺序 + 每通道原文（`cells[].channels[].raw`、`usesThis`、`usesMolang`） |
-| `openAbout()` | 「关于这个项目」弹窗：头像 + 汉西 / Hancy / B 站 @小汉西 + vibe coding 说明 + 版权行 |
-| `initDocs()` | 说明弹窗（布局怎么读 / this / override / 关键帧 / 表达式 / 示例库 / 收起骨骼列 / 文件来源） |
-| `applyTheme()` / `initTheme()` | 双主题，跟随 `prefers-color-scheme`，写 `<html data-theme>` |
-| `boot()` | `initTheme → initModal → initSamples → initMatrix → initColbar → initDrag → initImport → initPaste → initExport → initDocs → load() || loadSamples() → render()` |
-
----
-
-## 8. 持久化
-
-```js
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-immersive-translate-page-theme="dark"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bedrock Animation Stack · 5 个动画</title>
+<style>
+/* ============================================================
+   Design Tokens
+   ============================================================ */
+:root, html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #09090B;
+  --bg-2: #111113;
+  --card: #141417;
+  --card-hover: #17171A;
+  --hover: #1C1C21;
+  --border: #27272A;
+  --border-2: #3F3F46;
+  --text: #F4F4F5;
+  --text-2: #A1A1AA;
+  --text-3: #71717A;
+  --accent: #6366F1;
+  --accent-hover: #7C7FF5;
+  --accent-fg: #FFFFFF;
+  --accent-soft: rgba(99, 102, 241, .14);
+  --amber: #F59E0B;
+  --amber-soft: rgba(245, 158, 11, .09);
+  --amber-line: rgba(245, 158, 11, .34);
+  --violet: #A78BFA;
+  --violet-soft: rgba(167, 139, 250, .12);
+  --sky: #38BDF8;
+  --sky-soft: rgba(56, 189, 248, .10);
+  --danger: #F87171;
+  --danger-soft: rgba(248, 113, 113, .10);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .45);
+  --shadow-2: 0 16px 40px -16px rgba(0, 0, 0, .72), 0 2px 8px rgba(0, 0, 0, .32);
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 12px;
+  --t-fast: 140ms;
+  --t-base: 200ms;
+  --t-slow: 280ms;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --sans: "Inter", "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI",
+    "PingFang SC", "Source Han Sans SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", "Geist Mono", "SF Mono", "Cascadia Mono", "Roboto Mono", Consolas, ui-monospace, monospace;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #FAFAFA;
+  --bg-2: #F4F4F5;
+  --card: #FFFFFF;
+  --card-hover: #FCFCFD;
+  --hover: #F4F4F5;
+  --border: #E4E4E7;
+  --border-2: #D4D4D8;
+  --text: #18181B;
+  --text-2: #52525B;
+  --text-3: #71717A;
+  --accent: #4F46E5;
+  --accent-hover: #4338CA;
+  --accent-fg: #FFFFFF;
+  --accent-soft: rgba(79, 70, 229, .08);
+  --amber: #B45309;
+  --amber-soft: rgba(180, 83, 9, .07);
+  --amber-line: rgba(180, 83, 9, .28);
+  --violet: #7C3AED;
+  --violet-soft: rgba(124, 58, 237, .08);
+  --sky: #0369A1;
+  --sky-soft: rgba(3, 105, 161, .07);
+  --danger: #DC2626;
+  --danger-soft: rgba(220, 38, 38, .07);
+  --shadow-1: 0 1px 2px rgba(24, 24, 27, .06);
+  --shadow-2: 0 18px 44px -18px rgba(24, 24, 27, .22), 0 2px 8px rgba(24, 24, 27, .06);
+}
+
+@media (prefers-color-scheme: light) {
+  html:not([data-theme]) {
+    color-scheme: light;
+    --bg: #FAFAFA;
+    --bg-2: #F4F4F5;
+    --card: #FFFFFF;
+    --card-hover: #FCFCFD;
+    --hover: #F4F4F5;
+    --border: #E4E4E7;
+    --border-2: #D4D4D8;
+    --text: #18181B;
+    --text-2: #52525B;
+    --text-3: #71717A;
+    --accent: #4F46E5;
+    --accent-hover: #4338CA;
+    --accent-fg: #FFFFFF;
+    --accent-soft: rgba(79, 70, 229, .08);
+    --amber: #B45309;
+    --amber-soft: rgba(180, 83, 9, .07);
+    --amber-line: rgba(180, 83, 9, .28);
+    --violet: #7C3AED;
+    --violet-soft: rgba(124, 58, 237, .08);
+    --sky: #0369A1;
+    --sky-soft: rgba(3, 105, 161, .07);
+    --danger: #DC2626;
+    --danger-soft: rgba(220, 38, 38, .07);
+    --shadow-1: 0 1px 2px rgba(24, 24, 27, .06);
+    --shadow-2: 0 18px 44px -18px rgba(24, 24, 27, .22), 0 2px 8px rgba(24, 24, 27, .06);
+  }
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";
+  /* 整页不滚：只有矩阵自己的 .mwrap 滚，避免「外层滚一点、表格滚一点」的抢滚轮 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body.dragging { user-select: none; cursor: grabbing; }
+
+h1, h2, h3, h4, p { margin: 0; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+::selection { background: var(--accent-soft); }
+
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border: 3px solid var(--bg);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+.icon.sm { width: 14px; height: 14px; }
+.icon.dots { fill: currentColor; stroke: none; }
+[hidden] { display: none !important; }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.btn:hover { background: var(--hover); border-color: var(--border-2); color: var(--text); }
+.btn:active { background: var(--bg-2); }
+.btn .icon { color: var(--text-3); transition: color var(--t-fast) var(--ease); }
+.btn:hover .icon { color: var(--text-2); }
+
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-fg);
+  box-shadow: var(--shadow-1);
+}
+.btn.primary .icon { color: currentColor; opacity: .95; }
+.btn.primary:hover { background: var(--accent-hover); color: var(--accent-fg); }
+
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-3); }
+.btn.ghost:hover { background: var(--hover); color: var(--text); }
+
+.btn.icon-only { width: 34px; padding: 0; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn.loading { pointer-events: none; color: var(--text-3); }
+.btn.loading .icon { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============================================================
+   Navigation
+   ============================================================ */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 60;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+.brand-text { display: flex; flex-direction: column; min-width: 0; }
+.brand-text strong {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  line-height: 1.3;
+}
+.brand-text small {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.3;
+  letter-spacing: .01em;
+}
+
+.nav-spacer { flex: 1; }
+.nav-actions { display: flex; align-items: center; gap: 6px; }
+
+/* dropdown */
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 268px;
+  padding: 6px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+  z-index: 70;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.menu.open { opacity: 1; transform: none; pointer-events: auto; }
+.menu .lab {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.menu .sep { height: 1px; margin: 6px 4px; background: var(--border); }
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.menu button:hover { background: var(--hover); color: var(--text); }
+.menu button .k { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.menu button .idx {
+  width: 18px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: right;
+}
+
+/* ============================================================
+   Shell
+   ============================================================ */
+.shell {
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 20px 24px 56px;              /* 底部留出固定状态栏的 40px + 一点缝 */
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  --cols: 108px 112px repeat(3, minmax(64px, 104px)) minmax(140px, 1fr);
+}
+
+/* ============================================================
+   Matrix · 列 = 动画，行 = 骨骼 / 通道
+   ============================================================ */
+.mwrap {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  overflow: auto;
+  /* 唯一的滚动容器：吃掉剩余高度，并在头/尾不再把手势传给外面 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+.shell > #colbar { flex: none; }
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 64px 24px;
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-lg);
+  background: var(--bg-2);
+  text-align: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.empty .icon { width: 26px; height: 26px; color: var(--text-3); }
+.empty h3 { font-size: 14px; font-weight: 600; color: var(--text-2); }
+.empty p { font-size: 12.5px; color: var(--text-3); line-height: 1.7; max-width: 56ch; }
+.empty code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+.mtx {
+  border-collapse: separate;  border-spacing: 0;
+  table-layout: fixed;
+  width: max(100%, calc(210px + var(--ncol, 1) * 140px));
+  font-size: 12.5px;
+}
+
+/* ---- 表头 ---- */
+.mtx thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  font-weight: 400;
+  padding: 9px 11px 10px;
+  width: 226px;
+  min-width: 0;
+}
+.mtx thead th.corner {
+  left: 0;
+  z-index: 6;
+  min-width: 158px;
+  width: 158px;
+  display: table-cell;
+  vertical-align: bottom;
+  padding-bottom: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  box-shadow: inset 0 3px 0 var(--border);
+}
+
+/* ---- 列 ---- */
+.mtx th.col {
+  box-shadow: inset 0 2px 0 var(--c, var(--border-2));
+}
+.mtx th.col.ov {
+  background: var(--amber-soft);
+  box-shadow: inset 0 2px 0 var(--amber);
+  border-left: 1px solid var(--amber-line);
+  border-right: 1px solid var(--amber-line);
+}
+.mtx th.col.off { background: var(--bg-2); }
+.mtx th.col.off .key { color: var(--text-3); }
+.mtx th.col.off .col-body { opacity: .45; }
+
+.ch-top { display: flex; align-items: center; gap: 6px; }
+.ch-top .grip { color: var(--border-2); }
+.mtx th.col:hover .ch-top .grip { color: var(--text-3); }
+.ch-top .key {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  cursor: pointer;
+}
+.ch-top .key:hover { text-decoration: underline; text-underline-offset: 3px; }
+.ch-top .idx {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.col-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.col-meta .acts { margin-left: auto; display: flex; gap: 2px; }
+.col-meta .len {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 行标签 ---- */
+.mtx tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--card);
+  text-align: left;
+  font-weight: 400;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+.mtx tbody tr.grp th {
+  background: var(--bg-2);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -.005em;
+}
+.mtx tbody tr.grp th .ghost-dot { margin-right: 6px; }
+.mtx tbody tr.chan th {
+  padding-left: 24px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  letter-spacing: .01em;
+}
+.mtx tbody tr.chan:hover th { color: var(--text-2); }
+.mtx tbody tr.grp td {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+.mtx tbody tr.chan td {
+  border-bottom: 1px solid var(--border);
+  padding: 7px 11px;
+  vertical-align: top;
+}
+
+/* ---- 单元格 ---- */
+.mtx td.none {
+  color: var(--border-2);
+  text-align: center;
+  font-family: var(--mono);
+}
+/* 这段动画压根没有这根骨骼：淡斜纹 = 不适用（区别于「碰了骨骼但没写这个通道」的 ·） */
+.mtx td.none.bnone {
+  background-color: color-mix(in srgb, var(--bg-2) 42%, transparent);
+  background-image: repeating-linear-gradient(135deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--border-2) 22%, transparent) 6px 7px);
+  color: transparent;
+}
+.mtx td.cell { position: relative; }
+/* 被下面 override 作废：铺一层淡琥珀底 + 琥珀色划掉 —— 和「- this 写成绝对值」区分开 */
+.mtx td.cell.dead { background: color-mix(in srgb, var(--amber) 6%, transparent); }
+.mtx td.cell.dead .vec,
+.mtx td.cell.dead .keys { opacity: .5; }
+.mtx td.cell.dead .vec span,
+.mtx td.cell.dead .keys span,
+.mtx td.cell.dead .expr {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--amber) 60%, transparent);
+  text-decoration-thickness: 1px;
+}
+/* 三条轴都被下面的 - this 写成绝对值：只划掉，不铺底（这是动画作者自己声明的绝对值，不算“被抹”） */
+.mtx td.cell.cutall .vec,
+.mtx td.cell.cutall .keys { opacity: .55; }
+.mtx td.cell.cutall .vec span,
+.mtx td.cell.cutall .keys span,
+.mtx td.cell.cutall .expr {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3);
+  text-decoration-thickness: 1px;
+}
+.mtx td.cell.cutall::after {
+  content: '⟂';
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.mtx td.cell.dead::after {
+  content: '⟂';
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
+  font-size: 10.5px;
+  color: var(--amber);
+}
+/* 单条轴被下面的 -this 抹掉（这一轴被写成绝对值，上面的累积不算了） */
+.vec span.cut { opacity: .42; }
+.vec span.cut .expr,
+.vec span.cut .num { text-decoration: line-through; text-decoration-color: var(--border-2); }
+.vec span.cut .cutmark {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3);
+  flex: none;
+}
+.keys.dead-keys { opacity: .42; }
+.keys.dead-keys span { text-decoration: line-through; text-decoration-color: var(--border-2); }
+.keys .more { color: var(--text-3); font-size: 11px; }
+
+/* ---- 长值：默认收成一行，点「展开」看全 ---- */
+.mtx td.cell.clip .expr {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+.mtx td.cell .xbtn {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 3px 0 -1px auto;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.3;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.mtx td.cell .xbtn:hover { color: var(--text); background: var(--hover); }
+.mtx td.cell .xbtn .icon { width: 10px; height: 10px; }
+.mtx td.cell.dead .xbtn { opacity: .8; }
+
+/* ---- 最终值行：贴在表格底部，跟着横向滚动 ---- */
+.mtx tbody tr.sumrow th,
+.mtx tbody tr.sumrow td {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border-2);
+  border-bottom: 0;
+}
+.mtx tbody tr.sumrow th {
+  left: 0;
+  z-index: 6;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.mtx tbody tr.sumrow td { padding: 6px 10px; vertical-align: middle; }
+.mtx tbody tr.sumrow .sum-top {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 11.5px;
+}
+.mtx tbody tr.sumrow .sum-top b { font-weight: 600; color: var(--text); }
+.mtx tbody tr.sumrow .sumv {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+  min-width: 0;
+}
+.mtx tbody tr.sumrow .sumv.isnum { color: var(--text); }
+.mtx tbody tr.sumrow .xbtn { font-size: 9.5px; }
+.mtx td.cell.clip .sumv { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.vec { display: flex; flex-direction: column; gap: 2px; }
+.vec span {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  line-height: 1.5;
+}
+.vec i {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--text-3);
+  width: 8px;
+  flex: none;
+  padding-top: 3px;
+}
+.num {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.expr {
+  display: block;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  /* 完整显示：不再省略号截断，长表达式换行；连 query.body_y_rotation 这种长 token 也允许断 */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  line-height: 1.45;
+}
+/* 只有引用了 this 的那一条轴标蓝，不标整个格子 */
+.expr.th {
+  color: #93C5FD;
+  background: rgba(59, 130, 246, .13);
+  border-color: rgba(59, 130, 246, .42);
+}
+html[data-theme="light"] .expr.th {
+  color: #1D4ED8;
+  background: rgba(37, 99, 235, .10);
+  border-color: rgba(37, 99, 235, .34);
+}
+.keys { display: flex; flex-direction: column; gap: 3px; }
+.keys span {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+  /* 完整显示：一帧一行，长了就换行，不再裁掉 */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.keys b {
+  font-weight: 400;
+  color: var(--text-3);
+  min-width: 26px;
+  font-variant-numeric: tabular-nums;
+}
+.keys u { text-decoration: none; color: var(--border-2); }
+.keys .jump { color: var(--amber); }
+
+/* ---- 骨骼列：表头可点隐藏 / 已隐藏提示栏 ---- */
+.mtx thead th.boneh[data-bone] { cursor: pointer; }
+.mtx thead th.boneh[data-bone]:hover { background: var(--hover); color: var(--text); }
+.mtx thead th.boneh[data-bone]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.mtx thead th.boneh .bh-eye {
+  display: inline-flex;
+  vertical-align: -2px;
+  margin-left: 5px;
+  opacity: .3;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.mtx thead th.boneh:hover .bh-eye { opacity: .75; }
+
+.colbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--card);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.colbar[hidden] { display: none; }
+.colbar .cbl { display: inline-flex; align-items: center; gap: 5px; }
+.colbar .cbl .icon { width: 13px; height: 13px; }
+.colbar .cbl b { color: var(--text-2); font-weight: 600; font-family: var(--mono); }
+.colbar .show-all { margin-left: auto; }
+
+/* 左列收窄按钮：直接长在表头左上角那格里 */
+.coltoggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; margin-left: auto;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--bg-2); color: var(--text-3);
+  cursor: pointer; flex: none;
+}
+.coltoggle:hover { color: var(--text); border-color: var(--border-2); }
+.coltoggle .icon { width: 12px; height: 12px; }
+/* 「最终值」那一格的标签本身就是收起按钮 */
+.sumtoggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 34px;                 /* 手指点得到（整行高度大，只靠文字太小） */
+  padding: 4px 0; border: 0; background: none; color: inherit;
+  font: inherit; cursor: pointer; text-align: left; width: 100%;
+}
+.sumtoggle:hover { color: var(--text-2); }
+.sumtoggle .sumfold { display: inline-flex; color: var(--text-3); }
+.sumtoggle .sumfold .icon { width: 12px; height: 12px; }
+/* 最终值收起来后，底部留一条 22px 的细条，点它展开 */
+.sumbar {
+  position: sticky; bottom: 0; z-index: 6;
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; height: 22px; padding: 0 10px;
+  border: 0; border-top: 1px solid var(--border);
+  background: var(--bg-2); color: var(--text-3);
+  font: inherit; font-size: 11px; cursor: pointer; text-align: left;
+}
+.sumbar:hover { color: var(--text-2); }
+.sumbar .icon { width: 11px; height: 11px; }
+
+/* 左列收窄：只留 序号 + 抓手 + 启停/删除，标题与徽标收起 */
+.mtx.col-collapsed thead th.corner,
+.mtx.col-collapsed tbody th.rowh { width: 96px; min-width: 96px; padding: 4px 6px; }
+.mtx.col-collapsed tbody th.rowh .rh-top { flex-wrap: wrap; gap: 3px 4px; }
+.mtx.col-collapsed tbody th.rowh .rh-top .key {
+  font-size: 10px; line-height: 1.2;
+  -webkit-line-clamp: 1; overflow: hidden;
+}
+.mtx.col-collapsed tbody th.rowh .rh-meta { display: none; }
+.mtx.col-collapsed tbody th.rowh .rh-top .acts { width: 100%; justify-content: flex-start; gap: 3px; }
+.mtx.col-collapsed .corner-t,
+.mtx.col-collapsed .bm-btn span { display: none; }
+/* 注意：th 有 rowspan=2，绝不能改成 flex/grid —— 一旦不是 table-cell，
+   下面那行的通道标签会整体错位一格。这里只调内边距与内部对齐。 */
+.mtx.col-collapsed thead th.corner { padding: 6px 4px; text-align: center; }
+.mtx.col-collapsed thead th.corner .corner-row { justify-content: center; gap: 4px; }
+.mtx.col-collapsed thead th.corner .coltoggle { margin-left: 0; }
+/* 手机：这条栏当骨骼选择器用（只显示选中的那一根） */
+.colbar.as-picker { gap: 5px; padding: 5px 7px; flex-wrap: nowrap; overflow-x: auto; }
+.colbar.as-picker .cbl { flex: none; color: var(--text-3); }
+.colbar.as-picker .hb.bsel { flex: none; height: 24px; padding: 0 9px; border-radius: 999px; }
+.colbar.as-picker .hb.bsel.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.colbar .hb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-2);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.colbar .hb:hover { color: var(--text); border-color: var(--border-2); }
+/* 触屏：行首画一个抓手点阵 + 首次访问给一条可关掉的提示 */
+.dragtip {
+  display: flex; align-items: center; gap: 9px;
+  margin: 0 0 8px; padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent) 7%, var(--card));
+  font-size: 11.5px; line-height: 1.5; color: var(--text-2);
+}
+.dragtip .g {
+  flex: none; width: 10px; height: 17px; border-radius: 2px;
+  color: var(--text-3);
+  background-image: radial-gradient(currentColor 1.2px, transparent 1.3px);
+  background-size: 5px 5.5px; background-position: 0 1px;
+}
+.dragtip b { color: var(--text); font-weight: 600; }
+.dragtip .x {
+  margin-left: auto; flex: none; height: 24px; padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--card); color: var(--text-2);
+  font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.dragtip .x:hover { color: var(--text); border-color: var(--border-2); }
+
+@media (pointer: coarse) {
+  .mtx tbody th.rowh { cursor: default; }
+  .mtx tbody th.rowh .rh-top::before {
+    content: ''; flex: none; width: 9px; height: 17px; border-radius: 2px;
+    color: var(--text-3); opacity: .85;
+    background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
+    background-size: 4.5px 5.2px; background-position: 0 1px;
+  }
+}
+.colbar .hb .icon { width: 11px; height: 11px; opacity: .55; }
+
+/* ---- 拖拽 ---- */
+body.dragging { cursor: grabbing; user-select: none; }
+
+/* 被拎起来的那一行：挡住下面的内容、给一点悬浮感 */
+.mtx tbody tr.lift {
+  position: relative;
+  z-index: 9;
+  will-change: transform;
+}
+.mtx tbody tr.lift > th,
+.mtx tbody tr.lift > td {
+  background: var(--card);
+  box-shadow: 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2);
+}
+.mtx tbody tr.lift > th { z-index: 10; }
+.mtx tbody tr.lift > th:first-child { box-shadow: inset 3px 0 0 var(--c, var(--border-2)), 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2); }
+/* 身份色只在「正指着它 / 正拖着它」时露出来：一次只有一行，不会跟语义色（琥珀=override、紫=this、天蓝=molang）抢注意力 */
+@media (hover: hover) and (pointer: fine) {
+  .mtx tbody tr.arow:hover > th.rowh { box-shadow: inset 3px 0 0 var(--c, var(--border-2)); }
+}
+
+/* ============================================================
+   Footer
+   ============================================================ */
+.statusbar .author {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 2px 6px 2px 3px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.statusbar .author:hover { color: var(--text); border-color: var(--border); background: var(--bg-2); }
+.statusbar .author .avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  image-rendering: pixelated;
+  box-shadow: 0 0 0 1px var(--border-2);
+}
+/* 变量取值弹窗 */
+.vars-sec { margin: 0 0 16px; }
+.vars-sec h5 {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.vars-sec h5 .vars-hint {
+  margin-left: 6px;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-3);
+  opacity: .75;
+}
+.var-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 0;
+}
+.var-row code {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.var-in {
+  flex: none;
+  width: 132px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: ew-resize;          /* 按住左右拖就能调值 */
+  touch-action: none;         /* 别让触屏把拖动当成滚动 */
+  transition: border-color var(--t-fast) var(--ease);
+}
+.var-in::placeholder { color: var(--text-3); }
+.var-in:focus { outline: none; border-color: var(--accent); }
+body.vscrub { user-select: none; cursor: ew-resize; }
+body.vscrub .var-in { border-color: var(--accent); }
+.mtx tbody tr.sumrow .sum-var {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent);
+  opacity: .8;
+}
+/* 关于弹窗 */
+.about { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.about .face {
+  width: 58px;
+  height: 58px;
+  border-radius: 9px;
+  image-rendering: pixelated;
+  box-shadow: 0 0 0 1px var(--border-2);
+}
+.about .id { display: flex; flex-direction: column; gap: 3px; }
+.about .id b { font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: .01em; }
+.about .id span { font-family: var(--mono); font-size: 12px; color: var(--text-3); }
+.about .bili {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -1px;
+  padding: 1px 5px 1px 1px;
+  border-radius: 999px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-decoration: none;
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.about .bili img { width: 18px; height: 18px; border-radius: 50%; box-shadow: 0 0 0 1px var(--border-2); }
+.about .bili .icon { width: 11px; height: 11px; opacity: .65; }
+.about .bili:hover { color: var(--text); background: var(--bg-2); }
+.about p { margin: 0 0 10px; font-size: 13px; line-height: 1.8; color: var(--text-2); }
+.about p:last-child { margin-bottom: 0; }
+.about .src { color: var(--text-3); font-size: 12px; }
+.about kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  color: var(--text-2);
+}
+.statusbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.statusbar .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: inline-block;
+  margin-right: 7px;
+}
+.statusbar .sep { width: 1px; height: 10px; background: var(--border); }
+.statusbar .r { margin-left: auto; font-family: var(--sans); }
+
+/* ============================================================
+   Modal
+   ============================================================ */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  animation: fade var(--t-base) var(--ease);
+}
+.modal[hidden] { display: none; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-card {
+  width: min(760px, 100%);
+  max-height: min(84vh, 880px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  animation: rise var(--t-slow) var(--ease);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.modal-card header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 14px 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-card h3 { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
+.modal-card header .icon-btn { margin-left: auto; }
+
+.modal-body { padding: 18px; overflow: auto; font-size: 13px; line-height: 1.75; color: var(--text-2); }
+.modal-foot {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.note { font-size: 12.5px; line-height: 1.7; color: var(--text-3); margin: 0 0 12px; }
+.note code, .modal-body code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--text-2);
+}
+
+textarea {
+  width: 100%;
+  min-height: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.65;
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+textarea:hover { border-color: var(--border-2); }
+textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.err { min-height: 18px; padding-top: 6px; font-size: 12px; color: var(--danger); }
+
+.pick-list { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow: auto; padding-right: 4px; }
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.pick:hover { border-color: var(--border-2); background: var(--hover); }
+.pick input { accent-color: var(--accent); width: 14px; height: 14px; }
+.pick .pl { margin-left: auto; font-size: 11px; color: var(--text-3); }
+
+.docs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* ---------- 示例库 ---------- */
+.lib { display: flex; flex-direction: column; gap: 20px; }
+.lib-group { display: flex; flex-direction: column; gap: 6px; }
+.lib-head { display: flex; align-items: center; gap: 8px; }
+.lib-head .icon { width: 14px; height: 14px; color: var(--text-3); }
+.lib-head h4 { font-size: 12.5px; font-weight: 600; color: var(--text); letter-spacing: .01em; }
+.lib-head .cnt {
+  min-width: 18px; height: 18px; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 999px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--text-3);
+}
+.lib-head .btn.tiny { margin-left: auto; }
+.lib-head .btn.tiny + .btn.tiny { margin-left: 0; }
+.btn.tiny { height: 26px; padding: 0 9px; font-size: 11.5px; border-radius: var(--r-sm); }
+.lib-note { margin: 0 0 2px; font-size: 11.5px; line-height: 1.65; color: var(--text-3); }
+.lib-note code {
+  font-family: var(--mono); font-size: 11px; padding: 1px 4px;
+  border-radius: 4px; background: var(--bg-2); color: var(--text-2);
+}
+.lib-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.lib-row:hover { border-color: var(--border-2); background: var(--hover); }
+.lib-row input { accent-color: var(--accent); width: 14px; height: 14px; flex: none; }
+.lib-row .nm { font-family: var(--mono); font-size: 12px; color: var(--text); white-space: nowrap; }
+.lib-row .ds { font-size: 11.5px; color: var(--text-3); margin-left: auto; text-align: right; }
+.lib-row .k {
+  flex: none; font-size: 10.5px; color: var(--text-3);
+  padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px;
+}
+.lib-row.in-stack { background: var(--card); border-color: var(--border-2); }
+.lib-row.in-stack .k { color: var(--accent); border-color: color-mix(in oklab, var(--accent) 40%, transparent); }
+.lib-row .ds { order: 2; }
+.lib-row .k { order: 3; }
+.doc-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+}
+.doc-card h4 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.doc-card h4 .icon { color: var(--text-3); }
+.doc-card p { margin: 0; font-size: 12px; line-height: 1.75; color: var(--text-2); }
+
+/* ============================================================
+   Toasts
+   ============================================================ */
+.toasts {
+  position: fixed;
+  right: 20px;
+  bottom: 56px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  animation: toast-in var(--t-base) var(--ease);
+}
+.toast .icon { color: var(--text-3); }
+.toast.good .icon { color: var(--accent); }
+.toast.bad { border-color: color-mix(in srgb, var(--danger) 34%, transparent); }
+.toast.bad .icon { color: var(--danger); }
+.toast code { font-family: var(--mono); font-size: 11.5px; color: var(--text); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ============================================================
+   Drop veil
+   ============================================================ */
+.dropveil {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: none;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+.dropveil.on { display: grid; }
+.dropveil .box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 44px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--r-xl);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+}
+.dropveil .box .icon { width: 22px; height: 22px; color: var(--accent); }
+.dropveil small { font-size: 11.5px; color: var(--text-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+/* ---- 转置版：行 = 动画，列 = 骨骼 / 通道 ---- */
+.mtx {
+  width: max(100%, calc(210px + var(--ncol, 1) * 140px));
+}
+.mtx thead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.mtx thead th {
+  position: static;
+  width: auto;
+  min-width: 0;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.mtx thead tr:first-child th {
+  height: 30px;
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--bg-2);
+}
+.mtx thead th.corner {
+  position: sticky;
+  left: 0;
+  z-index: 7;
+  width: 210px;
+  min-width: 210px;
+  vertical-align: middle;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+}
+.mtx thead th.corner .dim { color: var(--border-2); }
+.mtx thead th.corner .corner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* 快速选骨骼：角落那个小按钮 + 弹出面板 */
+.bm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.bm-btn .icon { width: 11px; height: 11px; }
+.bm-btn:hover { color: var(--text); border-color: var(--border-2); }
+.bm-btn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+
+.bonemgr {
+  position: fixed;
+  z-index: 95;
+  width: 272px;
+  padding: 10px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: var(--shadow-2);
+}
+.bm-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--text); }
+.bm-head b { font-weight: 600; }
+.bm-n { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-3); }
+.bm-list { display: flex; flex-wrap: wrap; gap: 5px; max-height: 250px; overflow: auto; }
+.bm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.bm-chip .bm-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .45; }
+.bm-chip.on { color: var(--text); border-color: var(--border-2); background: var(--card); }
+.bm-chip.on .bm-dot { background: var(--accent); opacity: 1; }
+.bm-chip:hover { border-color: var(--border-2); }
+.bm-foot { display: flex; gap: 6px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border); }
+.bm-foot button {
+  flex: 1;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.bm-foot button:hover { color: var(--text); border-color: var(--border-2); background: var(--hover); }
+.mtx thead th.boneh {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mtx thead th.boneh .ghost-dot { margin-right: 5px; }
+.mtx thead th.chanh {
+  width: 140px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  background: var(--bg-2);
+  border-left: 1px solid var(--border);
+  text-align: left;
+}
+
+.mtx tbody th.rowh {
+  touch-action: none;                            /* 触屏：在行首按下就是拖，别让浏览器接管成滚动 */
+  width: 210px;
+  min-width: 210px;
+  padding: 7px 10px;
+  vertical-align: middle;
+  white-space: normal;
+  cursor: grab;                                  /* 整行都能起手拖 */
+  box-shadow: none;                              /* 身份色默认不画，避免被读成状态色；见下方 hover / drag */
+}
+.mtx tbody tr.arow > td { cursor: grab; }
+.mtx tbody tr.arow > td button,
+.mtx tbody tr.arow > td .xbtn { cursor: pointer; }
+.mtx tbody th.rowh:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* 行头里的可点元素要恢复成手型，否则会继承 grab，看着像拖拽 */
+.mtx tbody th.rowh .key,
+.mtx tbody th.rowh .acts button { cursor: pointer; }
+.mtx tbody th.rowh.ov { background: color-mix(in srgb, var(--amber) 9%, var(--card)); box-shadow: inset 3px 0 0 var(--amber); }
+.mtx tbody th.rowh.off { background: var(--bg-2); }
+.mtx tbody th.rowh.off .rh-top,
+.mtx tbody th.rowh.off .rh-meta { opacity: .45; }
+.rh-top { display: flex; align-items: center; gap: 6px; }
+.rh-top .key {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 0;
+  flex: 1;
+  line-height: 1.3;
+  overflow-wrap: normal;
+  word-break: normal;
+  cursor: pointer;
+}
+.rh-top .key:hover { text-decoration: underline; text-underline-offset: 3px; }
+.rh-top .idx {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.rh-top .acts { margin-left: auto; display: flex; gap: 2px; flex: none; }
+.rh-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  padding-left: 16px;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.rh-meta .len {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.rh-meta .tags { display: flex; gap: 4px; flex-wrap: wrap; }
+/* 行头小标签：等宽小字，不抢戏，但按语义分色 */
+.rh-meta .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.rh-meta .chip .icon { width: 10px; height: 10px; }
+.rh-meta .chip.ov { color: var(--amber); }
+.rh-meta .chip.th { color: #93C5FD; }
+html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
+.rh-meta .chip.bad { color: #F87171; }
+.rh-meta .cover {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.mtx tbody tr.arow td {
+  border-bottom: 1px solid var(--border);
+  border-left: 1px solid transparent;
+  padding: 6px 10px;
+  vertical-align: top;
+}
+/* 悬浮提示：只在有真实指针（鼠标/触控板）时生效。
+   触屏上 :hover 会被 tap 卡住不放，之前整行底色一变就"背景消失"，所以这里既不碰 td 背景，
+   也用 (hover: hover) 把触屏整体排除。 */
+@media (hover: hover) and (pointer: fine) {
+  .mtx tbody tr.arow:hover th.rowh {
+    box-shadow: inset 2px 0 0 var(--accent), inset 3px 0 0 var(--c, var(--border-2));
+  }
+}
+.mtx tbody tr.arow.off td { opacity: .5; }
+.mtx tbody tr.arow.off th.rowh { opacity: 1; }
+
+/* override 行：顶边一条琥珀线 = 上面的累计到这里切断（代替文字说明） */
+.mtx tbody tr.ovon > th,
+.mtx tbody tr.ovon > td { border-top: 2px solid var(--amber); }
+.mtx tbody tr.ovon > th { background: color-mix(in srgb, var(--amber) 9%, var(--card)); }
+
+.mtx td.none { text-align: center; color: var(--border-2); font-family: var(--mono); font-size: 12px; }
+/* 单元格里的空白文本节点会撑出一个 17.8px 的匿名行盒（手机上每行白高一截）；
+   line-height:0 让它塌掉，内部 .vec / .keys 自己恢复行高 */
+.mtx tbody tr.arow td.cell { line-height: 0; }
+.mtx td.cell .vec, .mtx td.cell .keys { line-height: 1.5; }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 1023px) {
+  .nav { padding: 0 16px; }
+  .shell { padding: 16px 16px 56px; }
+  .statusbar { padding: 0 16px; }
+  .docs { grid-template-columns: 1fr; }
+  .mtx { width: max(100%, calc(186px + var(--ncol, 1) * 128px)); }
+  .mtx thead th.corner, .mtx tbody th.rowh { width: 186px; min-width: 186px; }
+  .mtx thead th.chanh { width: 128px; }
+}
+
+/* 窄屏：导航收成两行、表格瘦身到能看清的最小宽度、去掉外框圆角吃满屏宽 */
+@media (max-width: 767px) {
+  .nav { height: auto; min-height: 52px; padding: 8px 12px; row-gap: 6px; flex-wrap: wrap; }
+  .brand-text small { display: none; }
+  .nav-spacer { display: none; }
+  /* 以前是横向滚动，右边的按钮用户根本发现不了。
+     display:contents 让按钮直接参与 .nav 的换行，导航高度才会正确撑开 */
+  .nav { gap: 6px; }
+  .nav-actions { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; }
+  .nav-icons { display: flex; gap: 5px; }
+  .btn { height: 30px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
+  .btn.icon-only { width: 30px; }
+  .btn .icon { width: 14px; height: 14px; }
+
+  .shell { padding: 10px 0 44px; }
+
+  /* 隐藏骨骼的横条：窄屏不换行，改成一行内横滑，避免几十个 chip 把表格挤出去 */
+  .colbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-height: 36px;
+    margin: 0 0 6px;
+    padding: 5px 8px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .colbar::-webkit-scrollbar { display: none; }
+  .colbar > * { flex: none; }
+  .colbar .show-all {
+    position: sticky;
+    right: 0;
+    margin-left: 0;
+    padding-left: 8px;
+    background: var(--card);
+    box-shadow: -8px 0 8px -6px color-mix(in srgb, var(--bg) 70%, transparent);
+  }
+  .colbar .hb { height: 24px; }
+
+  .mwrap {
+    border-left: 0; border-right: 0; border-radius: 0;
+    box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border);
+  }
+  .mtx { width: max(100%, calc(168px + var(--ncol, 1) * 118px)); font-size: 11.5px; }
+  .mtx thead th.corner, .mtx tbody th.rowh { width: 168px; min-width: 168px; padding: 6px 8px; }
+  .mtx thead th.corner { font-size: 9.5px; }
+  .mtx thead tr:first-child th { height: 26px; font-size: 10.5px; }
+  .mtx thead th.boneh { font-size: 11px; padding: 5px 8px; }
+  .mtx thead th.chanh { width: 118px; font-size: 10px; padding: 5px 8px; }
+  .rh-top { gap: 5px; }
+  .rh-top .key {
+    font-size: 11.5px;
+    white-space: normal;
+    overflow-wrap: normal;      /* 只在 <wbr> 的点号处断，不在词中间切 */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .rh-top .acts { gap: 2px; }
+  .rh-top .acts .icon-btn { width: 26px; height: 26px; }
+  .rh-top .acts .icon-btn .icon { width: 13px; height: 13px; }
+  .rh-meta { font-size: 10px; gap: 3px; margin-top: 3px; }
+  .rh-meta .len { display: none; }
+  .rh-meta .cover { display: none; }
+  .rh-meta .chip { font-size: 9.5px; padding: 1px 4px; }
+  .rh-meta .lchip { display: none; }   /* 窄屏省一行：循环图标和 .len 重复 */
+  .mtx td.cell { font-size: 11px; }
+  .mtx td.cell .vec, .mtx td.cell .keys { line-height: 1.5; }
+
+  .modal { padding: 10px; }
+  .modal-card { max-height: 90vh; }
+  .modal-body { padding: 12px; }
+  .modal-foot { padding: 10px 12px; }
+  .toasts { left: 10px; right: 10px; bottom: 42px; }
+  .toast { max-width: none; }
+  .statusbar { height: 34px; font-size: 10.5px; padding: 0 10px; }
+  .statusbar .r { display: none; }
+  .vars-sec .var-row { grid-template-columns: 1fr; gap: 4px; }
+  .vars-sec .var-in { width: 100%; }
+}
+
+/* 窄手机（<=480）：把行首压紧，一行能多塞几条动画 */
+@media (max-width: 480px) {
+  .mtx tbody th.rowh { padding: 5px 7px; }
+  .rh-top { gap: 4px; }
+  .rh-top .idx { font-size: 10px; }
+  .rh-top .key { font-size: 11px; line-height: 1.25; }
+  .rh-top .acts { gap: 2px; }
+  .rh-top .acts .icon-btn { width: 22px; height: 22px; }
+  .rh-top .acts .icon-btn .icon { width: 12px; height: 12px; }
+  .rh-meta { margin-top: 2px; font-size: 9.5px; }
+  .rh-meta .chip { font-size: 9px; padding: 0.5px 3.5px; }
+  /* 一格里的表达式一律单行省略：窄列里换行会把整行撑到 4–6 行高，非常吃空间。
+     想看全文：点格子上的「展开」（长值时出现）或把窗口放大。 */
+  .mtx td.cell .vec span, .mtx td.cell .keys li { min-width: 0; }
+  .mtx td.cell .expr, .mtx td.cell .num {
+    min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* 触屏长按会选中行首文字、弹出系统「复制/全选」菜单，把拖拽手势吃掉 */
+  .mtx th, .mtx td {
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .statusbar { white-space: nowrap; font-size: 10px; gap: 4px; }
+  .statusbar .sep { margin: 0 2px; }
+  /* 手机上「只是有表达式」不算关键信息：molang 计数先收起，override / -this 仍保留 */
+  .rh-meta .chip.mo { display: none; }
+  .vec i { padding-top: 1px; }
+  .vec { gap: 1px; }
+}
+
+@media (max-height: 380px) {  /* 极端矮窗口（例如放大到 200%）留条退路：整页恢复可滚，表格给固定高度，
+     否则 overflow:hidden 会把表格压没。正常高度下永远只有表格这一个滚动容器。 */
+  body { overflow: auto; }
+  .shell { flex: none; }
+  .mwrap, #empty { flex: none; height: 240px; }
+}
+
+
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">
+      <svg class="icon" viewBox="0 0 24 24">
+        <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"></path>
+        <path d="M4 7.5l8 4.5 8-4.5M12 12v9"></path>
+      </svg>
+    </span>
+    <span class="brand-text">
+      <strong>Bedrock Animation Stack</strong>
+      <small>资源包动画叠加台 · 拖拽决定顺序与边界</small>
+    </span>
+  </div>
+
+  <div class="nav-spacer"></div>
+
+  <div class="nav-actions">
+    <button class="btn primary" id="btnImport">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 16V4M12 4L7.5 8.5M12 4l4.5 4.5M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
+      导入动画
+    </button>
+    <button class="btn" id="btnPaste">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M9 4h6v3H9z"></path><path d="M8 5.5H6.5A1.5 1.5 0 005 7v13a1.5 1.5 0 001.5 1.5h11A1.5 1.5 0 0019 20V7a1.5 1.5 0 00-1.5-1.5H16"></path></svg>
+      粘贴
+    </button>
+    <button class="btn" id="btnVars" title="给 variable / query 设值：设了之后最终值按数字算">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M9.2 4.2H8.4a2 2 0 00-2 2v3.6L4.6 12l1.8 2.2v3.6a2 2 0 002 2h.8M14.8 4.2h.8a2 2 0 012 2v3.6l1.8 2.2-1.8 2.2v3.6a2 2 0 01-2 2h-.8"></path></svg>
+      变量
+    </button>
+    <button class="btn" id="btnSamples">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"></path></svg>
+      示例库
+    </button>
+    <span class="nav-icons">
+    <button class="btn ghost icon-only" id="btnUndo" aria-label="撤销（Ctrl+Z）" title="没有可撤销的操作" disabled="">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M9 14.2L4.2 9.4 9 4.6"></path><path d="M4.2 9.4h10a5.4 5.4 0 010 10.8H10"></path></svg>
+    </button>
+    <button class="btn ghost icon-only" id="btnRedo" aria-label="重做（Ctrl+Y）" title="没有可重做的操作" disabled="">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M15 14.2l4.8-4.8L15 4.6"></path><path d="M19.8 9.4h-10a5.4 5.4 0 000 10.8H14"></path></svg>
+    </button>
+    <button class="btn ghost icon-only" id="btnExport" aria-label="导出当前叠加结果" title="导出当前叠加结果">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 4v12M12 16l4-4M12 16l-4-4M5 20h14"></path></svg>
+    </button>
+    <button class="btn ghost icon-only" id="btnDocs" aria-label="语义说明与图例" title="语义说明与图例">
+      <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9.6 9.2a2.5 2.5 0 013.9 2.1c0 1.1-.6 1.5-1.4 2-.5.3-.9.7-.9 1.4v.4"></path><path d="M12 17.6h.01"></path></svg>
+    </button>
+    <button class="btn ghost icon-only" id="btnTheme" aria-label="切换到浅色模式" title="切换深浅色">
+      <svg class="icon" id="icoThemeDark" viewBox="0 0 24 24"><path d="M21 12.8A8.5 8.5 0 1111.2 3a7 7 0 009.8 9.8z"></path></svg>
+      <svg class="icon" id="icoThemeLight" viewBox="0 0 24 24" hidden=""><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+    </button>
+    </span>
+  </div>
+</header>
+
+<div class="shell">
+  <div class="colbar" id="colbar" hidden></div>
+
+
+
+  <div class="mwrap" id="mwrap"><div id="matrix"></div></div>
+
+  <div class="empty" id="empty" hidden="">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M4 7h7v7H4zM13 10h7v7h-7z"></path></svg>
+    <h3>动画栈是空的</h3>
+    <p>从右上角「示例」加入几段动画，或者把 bedrock-samples 里 <code>resource_pack/animations/*.json</code> 直接拖进窗口。</p>
+  </div>
+</div>
+
+<footer class="statusbar">
+  <span><span class="dot"></span><span id="stAnims">5 个动画</span></span>
+  <span class="sep"></span>
+  <span id="stBones">8 根骨骼</span>
+  <span class="sep"></span>
+  <span id="stChans">12 个通道</span>
+  <span class="r" id="stHint">拖动行首排序 · 拖文件进窗口导入</span>
+  <button class="author" id="btnAbout" type="button" title="关于这个项目 · 汉西 Hancy">
+    <img class="avatar" src="avatar.png" alt="汉西的 Minecraft 皮肤头像" width="16" height="16">
+    <span>汉西 · Hancy</span>
+  </button>
+</footer>
+
+<div class="modal" id="modal" hidden="">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <header>
+      <h3 id="modalTitle">示例动画库</h3>
+      <button class="icon-btn" id="modalClose" aria-label="关闭">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+      </button>
+    </header>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot" id="modalFoot"><button class="btn" data-close="1">关闭</button></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<div class="dropveil" id="dropveil">
+  <div class="box">
+    <svg class="icon" viewBox="0 0 24 24"><path d="M12 16V4M12 4L7.5 8.5M12 4l4.5 4.5M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"></path></svg>
+    松手导入动画 JSON
+    <small>支持多文件，或整个 animations 目录</small>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept=".json,application/json" multiple="" hidden="">
+
+<script>
+"use strict";
+/* ============================================================
+   P2 · 工具 / Molang / 动画解析 / 示例
+   ============================================================ */
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const uid = (() => { let n = 0; return p => (p || 'id') + '_' + (++n).toString(36); })();
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ---------------- 图标（Lucide 风格线性，统一 24 网格 / 1.75 描边） ---------------- */
+const ICON = {
+  chevronDown: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></svg>',
+  chevronUp: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></svg>',
+  chevronRight: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg>',
+  chevronsLeft: '<svg class="icon" viewBox="0 0 24 24"><path d="M11 6l-5 6 5 6M17 6l-5 6 5 6"/></svg>',
+  chevronsRight: '<svg class="icon" viewBox="0 0 24 24"><path d="M7 6l5 6-5 6M13 6l5 6-5 6"/></svg>',
+  chevronsUp: '<svg class="icon" viewBox="0 0 24 24"><path d="M6 13l6-6 6 6M6 19l6-6 6 6"/></svg>',
+  chevronsDown: '<svg class="icon" viewBox="0 0 24 24"><path d="M6 11l6 6 6-6M6 5l6 6 6-6"/></svg>',
+  close: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+  trash: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5.2h5V7M6.6 7l.8 12h9.2l.8-12M10.6 11v4.6M13.4 11v4.6"/></svg>',
+  eye: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M2.6 12S6.2 5.8 12 5.8 21.4 12 21.4 12 17.8 18.2 12 18.2 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.9"/></svg>',
+  eyeOff: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M10.7 6.1A9.6 9.6 0 0112 6c5.8 0 9.4 6 9.4 6a17.6 17.6 0 01-2.8 3.6M6.5 8.3A17 17 0 002.6 12S6.2 18 12 18a9.4 9.4 0 003.7-.8"/><path d="M3.2 3.2l17.6 17.6"/></svg>',
+  loop: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M17 3.5l3.2 3.2L17 9.9"/><path d="M3.8 11.2V9.9a3.2 3.2 0 013.2-3.2h13.2"/><path d="M7 20.5l-3.2-3.2L7 14.1"/><path d="M20.2 12.8v1.3a3.2 3.2 0 01-3.2 3.2H3.8"/></svg>',
+  once: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6.5 5l9 7-9 7z"/><path d="M18.5 5.2v13.6"/></svg>',
+  hold: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M5.5 5l8.5 7-8.5 7z"/><path d="M16.5 5.2v13.6M19.5 5.2v13.6"/></svg>',
+  sigma: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M18 5.2H6l6.4 6.8L6 18.8h12"/></svg>',
+  ban: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path d="M6.2 6.2l11.6 11.6"/></svg>',
+  swapped: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M7 4.2L3.6 7.6 7 11"/><path d="M3.6 7.6h13.6"/><path d="M17 19.8l3.4-3.4L17 13"/><path d="M20.4 16.4H6.8"/></svg>',
+  undo: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M9 14.2L4.2 9.4 9 4.6"/><path d="M4.2 9.4h10a5.4 5.4 0 010 10.8H10"/></svg>',
+  redo: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M15 14.2l4.8-4.8L15 4.6"/><path d="M19.8 9.4h-10a5.4 5.4 0 000 10.8H14"/></svg>',
+  minus: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M6 12h12"/></svg>',
+  override: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M5.5 4.5v6.2a3 3 0 003 3h10.2"/><path d="M15.2 10.4l3.5 3.3-3.5 3.3"/></svg>',
+  thisMark: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4 12h10.5M11 8.2l3.8 3.8-3.8 3.8M19.5 5v14"/></svg>',
+  molang: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M8.4 4.2C7 4.2 6.5 5.1 6.5 6.5v3.1c0 1.4-.9 2.4-1.9 2.4 1 0 1.9 1 1.9 2.4v3.1c0 1.4.5 2.3 1.9 2.3"/><path d="M15.6 4.2c1.4 0 1.9.9 1.9 2.3v3.1c0 1.4.9 2.4 1.9 2.4-1 0-1.9 1-1.9 2.4v3.1c0 1.4-.5 2.3-1.9 2.3"/></svg>',
+  keyframe: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M12 3.4l8.6 8.6L12 20.6 3.4 12z"/></svg>',
+  fx: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M11.4 4.6L6 12.4h4.2l-2 7 9-11h-4.2l2-3.8z"/></svg>',
+  warn: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M12 4.2l8.6 15.4H3.4z"/><path d="M12 9.4v4.2M12 16.6h.01"/></svg>',
+  ok: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4.5 12.6l4.8 4.8L19.5 6.9"/></svg>',
+  info: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 11.2v5M12 7.8h.01"/></svg>',
+  layers: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M12 3.2l8.8 4.7L12 12.6 3.2 7.9z"/><path d="M3.2 13l8.8 4.7 8.8-4.7"/></svg>',
+  order: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/></svg>',
+  clock: '<svg class="icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.4V12l3.2 2"/></svg>',
+  brace: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M9.2 4.2H8.4a2 2 0 00-2 2v3.6L4.6 12l1.8 2.2v3.6a2 2 0 002 2h.8M14.8 4.2h.8a2 2 0 012 2v3.6l1.8 2.2-1.8 2.2v3.6a2 2 0 01-2 2h-.8"/></svg>',
+  keyboard: '<svg class="icon sm" viewBox="0 0 24 24"><rect x="3" y="6.2" width="18" height="11.6" rx="2.2"/><path d="M7 10.2h.01M10.4 10.2h.01M13.8 10.2h.01M17 10.2h.01M7.6 14.2h8.8"/></svg>',
+  inbox: '<svg class="icon sm" viewBox="0 0 24 24"><path d="M4 13.2l2.6-7.4h10.8L20 13.2v4.6a2 2 0 01-2 2H6a2 2 0 01-2-2z"/><path d="M4 13.2h4.2l1.1 2.2h5.4l1.1-2.2H20"/></svg>'
+};
+const ic = n => ICON[n] || '';
+
+/* ---------------- 主题（跟随系统，可手动切换） ---------------- */
+const THEME_KEY = 'bedrock-anim-lab.theme';
 const LS_KEY = 'bedrock-anim-lab.v4';
-// save(): {
-//   v: 4,
-//   items: [{ animKey, def, fileName, enabled, color }],
-//   hiddenBones: ['head', 'root']     // 可选；纯显示偏好
-// }
-// load(): 必须 data.v === 4 才采用，否则回落到默认示例
-//         hiddenBones 缺失 / 不是数组都按 [] 处理（老数据照样能读）
-```
-
-**改动存储结构时必须同时改 `v`**，否则老数据会被读成坏数据（历史上踩过一次：`LS_KEY` 没定义 → 永久不落盘；`v` 不匹配 → 改完刷新看不见效果）。
-
-例外：`hiddenBones` 是**可选字段**，加了它没有升 `v` —— 升 `v` 会把别人的动画栈整个丢掉，代价比兼容读取大。判断标准：**新增可选字段可以不动 `v`，改动已有字段语义必须升**。
-
-`hiddenBones` 里的骨骼名可能不在当前栈里（比如换了示例组），`renderColbar()` 只显示当前数据里存在的那些；`buildMatrix()` 里过滤时也不在乎（不存在的骨骼本来就没有列）。
-
----
-
-## 9. 样式系统
-
-设计语言的硬要求（用户给过一份完整规范，摘要）：
-
-- 深色：`--bg #09090B` / `--bg-2 #111113` / `--card #141417` / `--hover #1C1C21` / `--border #27272A` / 文字 `#F4F4F5 · #A1A1AA · #71717A` / accent `#6366F1`
-- 浅色：`--bg #FAFAFA` / `--card #FFFFFF` / `--bg-2 #F4F4F5` / `--border #E4E4E7` / 文字 `#18181B · #52525B` / accent `#4F46E5`
-- 圆角 8–12，1px 细边，阴影极淡；按钮 34px 高、圆角 6–8；导航 60px
-- 字号：正文 13–14 / 辅助 11.5–12 / 微标 10.5；数字用等宽（`--mono`，JetBrains Mono 族）
-- 图标统一 `class="icon"`（16px，stroke 1.75），**不许用 emoji 当功能图标**
-- 动效 120–180ms（hover）/ 200–280ms（弹窗），并尊重 `prefers-reduced-motion`
-- override 行是 `tr.ovon`：`> th/td` 一条 2px 琥珀 `border-top`，行头底色 `color-mix(amber 9%, card)`；`.cell.dead`（override 作废）= 6% 琥珀底 + 琥珀划掉 + 琥珀 `⟂`；`.cell.cutall`（三条轴被 `- this` 写死）= 无底 + 灰色划掉 + 灰 `⟂`
-- 骨骼面板 `.bonemgr` 是 `position: fixed`（挂在 body 上，`render()` 重建表格不会把它冲掉），跟着角落按钮定位；`.bm-chip.on` 用实心点 + `--card` 底表示「显示中」
-- 最终值里的表达式用 `.sumv`（10.5px 等宽、`--text-2`，纯数字 `.isnum` 提亮）；太长走 `.clip` 的省略号 + 「展开」
-- 底部「最终值」行是 sticky（`bottom: 0`），底色 `--bg-2` 必须不透明；行头那格同时 sticky left（`z-index: 6`），不然横向滚动会错位
-- 换序动画只动 `transform`（FLIP），不动布局；`<tr>` 上的 transform 在 `border-collapse: separate` 下是可靠的
-- 拖着的那行是 `.lift`：`z-index: 9`、单元格底色补成 `--card`（td 本来透明，不补就会透出下面的行）、上下各一条 1px 边线当"被拿起"的效果；松手/重建时 `place()` 重新把它贴回指针
-- 面板宽度：`.shell max-width: 1560px`（顶部说明已整块删除，表格从导航下方 20px 处开始）；矩阵列宽：标签列 232px，通道列 **208px**（2026-11-26 从 144 加宽，因为格子改成完整换行后 144 会把 `variable.tcos0 * -1.4` 这种常见表达式折成两行），`width: max(100%, calc(232px + var(--ncol) * 208px))`，窄屏横向滚动
-- 格子文字**不截断**：`.expr` 用 `white-space: pre-wrap` + `overflow-wrap: break-word`（`break-word` 而不是 `anywhere`，避免把 `query.body_y_rotation` 从中间劈开，除非单个 token 真的超过一行）；`.keys span` 同理
-- `table-layout: fixed`：列宽由第一行（`thead` 的 corner + 骨骼 colspan）决定，所以改列宽要动 `--ncol` 那个公式和 `.chanh` 的 `width` 两处
-- 行头 chips（`override` / `this ×N` / `molang ×N` …）是 10px 等宽小字、按语义分色（`.chip.ov` 琥珀 / `.chip.th` 蓝 / `.chip.bad` 红），不再继承 12.5px 正文；`.rh-meta` 允许换行，chips 多了会掉到第二行而不是被裁掉
-- 空单元格分两种：`td.none` 一个 `·`（有骨骼没通道）；`td.none.bnone` 斜纹（连骨骼都没有，`repeating-linear-gradient` + `color-mix` 取 `--border-2` 22%，深色很淡、浅色更淡）
-- 长值折叠：`td.cell.clip` 下 `.expr` 用 `nowrap + ellipsis`；`.xbtn` 是 10px 等宽小按钮（`--text-2`，hover 提亮），右对齐贴在格子底部
-- 被 `- this` 抹掉的单轴：`.vec span.cut` 透明 42% + 删除线 + 行尾 `<em class="cutmark">⟂</em>`；三条轴全中时改用整格 `.dead`（省掉三个 ⟂，和 override 观感统一）
-- **行头是 sticky 的，背景必须不透明**：`.rowh.ov` 以前用 `--amber-soft`（9% alpha），横向滚动时会透出下面的格子文字、看起来像重影；现在改成 `color-mix(in srgb, var(--amber) 9%, var(--card))` 的实色。以后给 sticky 元素加底色，别直接用带 alpha 的 token
-- 行头 `cursor: grab`（整块可拖），但 `.key` 和 `.acts button` 单独 `cursor: pointer`；抓手图标的视觉尺寸不变，靠 `padding:4px` + 负 margin 把热区撑到 24×29
-- **滚动模型：全页只有一个滚动容器**。`body` 是 `flex column + overflow: hidden`，`.shell` 是 `flex: 1 1 auto; min-height: 0` 的 flex column，`.mwrap` 吃剩余高度并 `overscroll-behavior: contain` —— 这样滚轮/触控板永远只滚表格，滚到头也不会把手势传给页面（以前 `body` 会跟着滚几十像素，看起来像「两层抢滚轮」）。`.mwrap` 不再写死 `max-height: calc(100vh - 168px)`
-- 断点：1023px、767px（767 以下隐藏部分说明、缩列宽）
-
-状态语义色：`--accent`（交互）/ 琥珀（override 边界）/ 蓝 `#93C5FD`（`this`）/ 灰（被抹掉）。
-
-> 用户给的原始规范全文见 **附录 A**（逐字保留，冲突时以它为准）；逐条落地情况见 **附录 B**。
-
----
-
-## 10. 交互速查（用户视角）
-
-| 操作 | 结果 |
-| --- | --- |
-| 按住整行上下拖 | 行跟手走、其它行实时让位（手机 app 的手感）；松手才落库，`⟂` 与蓝标全程跟着重算。格子里的值也能起手，按钮和「展开」除外 |
-| 点骨骼表头（`root` / `head` 那一格） | 收起该骨骼的全部通道列；矩阵上方出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。**只影响显示** |
-| `Alt` + 点骨骼表头 | 只看这一根（其余全收起），再 Alt + 点还原 |
-| 点左上角「骨骼」按钮 | 弹出面板列出所有骨骼，点芯片开/关（面板不关，可以连着点），底部「全部显示 / 全部隐藏」；点面板外面或 Esc 收起 |
-| 拖动 / ↑↓ 换序 | 落手后各行有 220ms 的滑动到位动画（`renderFlip()`），移动的那行会从旧位置滑到新位置 |
-| 点格子右下角的「展开」 | 把这一格的长表达式 / 全部关键帧摊开，按钮变成「收起」；再点收回。**只影响这一格**，不写 localStorage |
-| 点眼睛 | 该行停用/启用（停用行不参与 `this` 与 override 判定） |
-| 点垃圾桶 | 从栈里删除 |
-| 顶栏「示例库」 | 打开弹窗；**勾选立刻增删**，无确认按钮；组头有「全选」「**替换整栈**」（清掉现有全部，只留这一组） |
-| 顶栏「导入动画」/ 拖文件进窗口 | 单个动画直接入栈；一个文件多个动画时弹勾选列表 |
-| 顶栏「粘贴」 | 手动贴 JSON（同样容忍 `//` 注释） |
-| 顶栏「导出」 | 下载 `bedrock-animation-stack.json`（顺序 + 边界 + 每通道原文） |
-| 顶栏「说明」 | 语义说明弹窗 |
-| 顶栏撤销 / 重做（或 `Ctrl+Z` / `Ctrl+Y`） | 回退 / 重做上一步：换序、启停、增删、替换整栈、收起或恢复骨骼列都能回退 |
-| 顶栏「`{ }` 变量」 | 打开变量取值弹窗：给 `variable.*` / `query.*` 填数字，最终值行立刻把能算的算成数字；清空输入即退回符号式；「全部清空」一次清完 |
-| 变量输入框（按住左右拖） | 拖动改值，**拖多少改多少**（1px = 1，`Shift` ×10，`Alt` ×0.1），手停就停；位移小于 3px 不算拖动，可以正常点进去敲数字 |
-| `Esc` | 关闭当前弹窗 |
-| 顶栏月亮/太阳 | 深浅主题切换 |
-
-### 键盘
-
-| 按键 | 结果 |
-| --- | --- |
-| `Tab` / `Shift+Tab` | 依次聚焦：抓手 → 眼睛 → 垃圾桶 → 下一行（焦点头有 `:focus-visible` 焦点环） |
-| 抓手聚焦后 `↑` / `↓` | 当前行上移 / 下移一行（等价于拖动） |
-| 抓手聚焦后 `Home` / `End` | 移到栈顶 / 栈底 |
-| 骨骼表头聚焦后 `Enter` / `Space` | 收起该骨骼的通道列（等价于点表头） |
-| `Enter` / `Space`（焦点在按钮上） | 触发该按钮（浏览器原生） |
-| `Ctrl+Z` / `Ctrl+Y`（或 `Ctrl+Shift+Z`） | 撤销 / 重做；焦点在 `input` / `textarea` 时不拦截 |
-| `Esc` | 关闭弹窗 |
-
-移动后焦点保持在被移动那一行的抓手上，可直接连按；状态栏 `#stHint` 会显示「第 N 行：动画名」。
-
----
-
-## 11. 已知问题 / 待办（按优先级）
-
-1. ~~蓝色 `this` 高亮未做浏览器验证~~ → **已实测通过**（浅色主题，`.expr.th` 47 个 / 普通 `.expr` 48 个；computed text `rgb(29,78,216)`，bg `rgba(37,99,235,.1)`，border `rgba(37,99,235,.34)`；`td.hasthis` = 0）。`humanoid.sneaking` 的 body.rotation 只有 x 变蓝，`armor_stand.athena_pose` 整行蓝，`player.sleeping` 上方琥珀带 + `head`/`root` 划掉，均符合预期。
-2. ~~键盘导航缺失~~ → **已补**（见 §10 键盘表与附录 B §12）。
-3. 浅色主题下矩阵未逐项复查（`.rh-ov` 琥珀说明块、`.dead` 灰化在浅色下的对比度已截图看过，可接受；`.expr.th` 已实测）。
-4. ~~`preview.png` / `samples.png` 落后于当前代码~~ → **2026-11-26 已按当前代码重拍**（深色、默认 5 行，1848×857，截图时窗口 1466 CSS px）。注意旧图里格内的 `this` 小徽标已被移除，现在只有**逐轴蓝色表达式** + 行首 `this ×N` chip，看旧图别以为丢了功能。
-5. **Molang 求值链是死代码**（见 §5.5）：要么接回来做「求值」视图，要么删除。
-6. `applyWeight()` / `fmtV()` 无调用点。
-7. 矩阵版 `initDrag()` **没有自动滚动**（v3 卡片版有过 110px 边缘自动滚动）；行数多时拖到屏幕外会吃力，可补。
-8. ~~无 git 仓库~~ → **已 `git init`**（`main`，基线 `0eeaf25`；`.gitattributes` 用 `* -text` 锁死行尾，避免 Windows autocrlf 改动字节）。提交身份取本机账号（全局无 `user.name` 时会被拒绝提交，先 `git config user.name/email` 设一个，别写真实姓名）。
-9. 移动端只做了「不横向溢出」级别的适配，矩阵本身必须横向滚动（列多时），可考虑冻结骨骼表头行。
-10. 示例库分组说明 `.lib-note` 用 `--text-3`（深色 #71717A on #141417 ≈ **3.8:1**），11.5px 正文低于 WCAG AA 4.5:1，截图里几乎看不清。改 `--text-2`（≈5.9:1）即可，但会动视觉层级，**未擅自改**。
-11. **展开状态只在内存里**：`state.openCells` 不写 localStorage，刷新后全部回到折叠态（故意的，免得下次打开发现一堆被撑高的行）。
-12. **撤销栈只在内存里**：刷新页面就清空（`save()` 不写历史，避免把整份 `def` 再复制进 localStorage）。颜色 `it.color` 也不在快照里，撤销后若被 `assignColors()` 重排过不会复原（视觉小瑕疵，不影响语义）。
-12. **行高**：默认折叠时一行 60–90px；点开长值后那一行会明显变高（`player.sleeping` 的 root.position 全展开约 250px），这是预期，不是 bug。想再压高度就调 `LONG_EXPR` 阈值或列宽，**别把「展开」按钮去掉、改成静默截断**（用户明确要的是「能展开」）。
-13. `load()` 里 `!data.items.length` 直接返回 false，于是**把行全删光再刷新，5 条默认示例会自己回来**。空状态（`#empty`）其实是合法状态，是否要持久化空栈待定。
-
----
-
-## 12. 血泪教训（务必遵守）
-
-1. **不要用 `IndexOf` 定位代码段直接 splice**。这个文件里 CSS 和 JS 各有一份 `/* ---------- 示例库 ---------- */`，我曾按第一个命中替换，一次删掉 65KB（`<script>` 都没了）。
-   自保动作：定位后先打印 `$s.Substring($start, 60)` 和 `$end - $start`，确认长度合理再写盘；或者干脆用 `edit` 工具按**唯一字符串**替换。
-2. **改完必须 `node --check`**（抽取 `<script>` 的方法见 §0）。HTML 层面坏了看不出来，JS 语法坏了页面直接白屏。
-3. **`localStorage` 有坑**：改状态结构不改 `v`，刷新后看不到变化，会误判成“没生效”。
-4. **浏览器验证的怪癖**（用的是 DSH 的 bsk 工具链）：
-   - `bsk_inspect screenshot` 经常返回**上一帧**（sha256 不变）；先用 `window.scrollTo(0,0)` 或 `?v=Date.now()` 导航再截。
-   - 弹窗有 0.2–0.28s 动画，截太早会拍到半透明帧（不是 bug），等 800ms 再截。
-   - 页面 rAF 重绘会让 strict 观察失效，用 `bsk_session sync` 拿 `context_id` + `bsk_interact evaluate`（`unverified: true`）。
-   - 浏览器扩展会往 DOM 注入 `<style wxt-...>`、`<read-frog>`、`<browser-skill-overlay>`；如果把页面 `outerHTML` 存回文件，**必须清掉这些节点**，否则会带一堆外部 CSS 进交付物。
-5. 从浏览器 DOM 抢救文件的办法：在页面里 `fetch('http://127.0.0.1:8766/save', {method:'POST', body:'<!DOCTYPE html>'+document.documentElement.outerHTML})`，配一个 10 行的 node 写盘服务（CORS `*`）。已用过一次，救回来了。
-
----
-
-## 13. 一句话验收标准
-
-打开 `index.html`：
-
-1. 默认 5 行（move / bob / sneaking / athena_pose / sleeping），行首可拖动，拖完 `⟂` 与蓝标跟着变；
-2. `sneaking` 的 `body.rotation` 的 **x** 是蓝的，y/z 不是；`athena_pose` 整行都是蓝的；
-3. `player.sleeping` 的顶边有琥珀线、行头偏琥珀；它上面 `sneaking` 的 head 格子是**淡琥珀底 + 琥珀划掉 + 琥珀 ⟂**；同一行 `body.rotation`（`0.5 - this`）**没有底色**、只有灰色划掉 + 灰 `⟂`；`sneaking`、`athena_pose` 在 `head` 上的格子被划掉并带 `⟂`（它们写了 `head`，而 `sleeping` 会清 `head`、`root`）；
-4. 示例库勾选一条 → 关闭弹窗前后都能在矩阵里看到它（且是启用状态）；
-5. 导入 `%USERPROFILE%\Desktop\claude\bedrock-samples-v1.26.50.4-full\resource_pack\animations\cat.animation.json`（带 `//` 注释）→ 弹出 8 条动画的勾选列表，选完能正常入栈；
-6. **点掉 `player.sleeping` 的眼睛** → 琥珀带消失、`sneaking`/`athena_pose` 的 `head` 格子恢复成正常值（`⟂` 清零，状态栏变成「5 个动画（4 启用）· 7 根骨骼 · 10 个通道」）；再点亮 → 全部复原。这条是 2026-11-26 修的 bug 的回归用例。
-7. 示例库点「**替换整栈**」（FMBE 基础）→ 栈里只剩这 8 行，顺序 `sleeping → creeper.swelling → dragon.neck_head_movement → warden.move → attack.rotations → parrot.moving → minecart.move → parrot.dance`，toast 报「移除 4 个」；再对「bedrock-samples 原生」点一次 → 回到默认 5 行。
-8. **完整显示**：`sleeping` 的 `root.position` 那格要能看到完整的 `24.0 * math.cos(query.body_y_rotation) * …` 一直到最后一个 `)`，**没有省略号**；这一行约 338px 高属正常。
-9. **收起骨骼**：点表头 `head` → `head` 的两列消失，上方出现「已隐藏 1 根骨骼 · head× · 全部显示」；点 `head×` 或「全部显示」→ 复原；刷新页面后隐藏状态仍在（`localStorage` 里的 `hiddenBones`）。
-10. **撤销 / 重做**：随便点掉一行的眼睛 → `Ctrl+Z` 恢复（顶栏撤销按钮可点，重做按钮亮起）→ `Ctrl+Y` 再停用一次；换序、移除、替换整栈同样能回退。输入框里按 Ctrl+Z 应该只影响输入框文本。
-11. **`- this` 覆盖**：`athena_pose` 写了 `-this/-this/-this+2`，所以 `move`、`bob` 的四肢旋转格被划掉并带 `⟂`；`sneaking` 的 body.rotation 整格划掉；而 `athena_pose` 自己的格子是正常的。`sleeping` 那条 `30.0 - this` 只影响 head 的 x，但那一格已被 override 整格抹掉。
-12. **覆盖率与斜纹**：`move` 行头是 `骨骼 4/8`，`root/body/head` 的格子是斜纹；`sneaking` 的 `rightitem` 是斜纹，但 `leftleg.rotation` 这种「有骨骼没通道」是 `·`。
-13. **拖拽范围**：在行头任意位置（动画名、序号、时间那一行）按住往上下拖 5px 以上就能换序，不必瞄准抓手；轻点动画名仍然只是开/关，不会误移。
-14. **横向滚动**：把矩阵横向滚到底，行头（尤其 `player.sleeping` 那条浅琥珀底）必须完全不透明，不能透出下面格子的文字。
-15. **长值折叠**：`humanoid.bob` 的左右臂 z 轴、`player.sleeping` 的 root.position/rotation 默认显示成一行 + 省略号，格子右下角有「展开」；点开后完整换行、按钮变「收起」；其余短值不受影响。
-16. **最终值**：底部一行左边只有「最终值」三个字，**没有时间控件、也没有副标题**；默认 5 行时 `body.rotation` 是 `0 / 0 / 2`（sneaking 的 `0.5 - this` 被 athena 的 `-this` 抵掉），`head.rotation` 是 `30/0/0`（override 清零后 sleeping 的 `30-this`），`leftarm.rotation` 是 `10/0/-5`（`variable.tcos0` 被 `-this + 10` 消掉），`root.position` 显示成带 `query.body_y_rotation` 的长表达式并带「展开」。
-17. **换序手感**：按住行里任意位置（行头或格子）往下拖，那一行会跟手走并盖住经过的行，其它行实时让位（190ms 滑动）；拖到第 4 行再松手，顺序真的落到第 4 位，不是只挪一格。松手后位置保持、刷新后还在。
-18. **快速藏骨骼**：左上角「骨骼」按钮弹出 8 个芯片（当前 8/8），点 `head` → 芯片变暗、表头少一列、顶部出现「已隐藏 1 根骨骼」、面板不关且计数变 7/8；「全部显示」回到 8/8。`Alt` + 点 `body` 表头 → 只剩 body 一列，再 Alt + 点还原。
-19. **滚轮不分层**：页面本身不滚（`documentElement.scrollHeight === clientHeight`），滚轮在表格上只滚表格、滚到表尾也不会带动整页；在说明文字上滚滚轮，页面纹丝不动。
-20. **变量取值**：点顶栏「`{ }` 变量」→ 弹窗按 `variable` / `query·其他` 分组列出当前栈出现的标识符，没设值的显示 `未设置`；给 `variable.tcos0` 填 `40` → 最终值行左边出现「已代入 1 个」，而 `leftarm.rotation` 仍是 `10`（被 `-this + 10` 抵消，说明代入真的参与了运算）；把 sneaking / athena / sleeping 三行停用后，同一格变成 `40`；再把 `query.body_y_rotation`、`query.sleep_rotation` 都填 `0` → `root.position` 从两条长式变成 `24 / 0 / 0`、`root.rotation` 变 `-90 / 270 / 0`、格子右下角的「展开」消失；清空输入 → 一切退回符号式，角标消失。
-21. **拖动调值**：按住任一变量输入框左右拖 —— 向右拖 10px 值就变 `10`、继续拖到 40px 变 `40`，**手停住数字立刻停住**（松手前后都不会自己往上爬）；按住 `Shift` 拖是 ×10、按住 `Alt` 拖是 ×0.1；拖完松手，刷新页面值还在（`localStorage`）；不想拖就直接点进去敲数字，两条路都通。
-
----
-
-## 14. 变更记录（接手后）
-
-### 2026-11-27 22:05 · 收起交互贴到 sticky 元素上 + 触屏不再残留 hover
-
-- 起因（两条用户反馈）：①「表头不用收起，把收起这个交互直接搞在这两个 sticky 元素上面，不用单起一行」②「手机上触碰到某一行之后背景还是会消失」。
-- 去掉上一轮的 `.togglerow`（三颗胶囊开关）与 `headCollapsed`（state / save / load / render 全部清空，`grep headCollapsed` = 0）：
-  1. **左列收窄**：按钮挪进 `th.corner`（`<button class="coltoggle" data-coltoggle>`，`chevronsLeft/Right`，20×20，`margin-left:auto`），点它把 168px 的行首列压到 96px（序号 + 省略名 + 眼睛/垃圾桶竖排），再点还原。
-  2. **最终值收起**：`th.sumh` 的标签本身变成按钮（`<button class="sumtoggle" data-sumtoggle>`，`min-height:34px` 保证手指点得到 + `chevronsDown`）；收起时 `render()` 不再输出这一行，改成表格后一条 `position:sticky;bottom:0;height:22px` 的 `.sumbar`「最终值 · 已收起，点这里展开」。
-  3. 事件改为 `initViewToggles()` 在 `document` 上委托 `[data-coltoggle]` / `[data-sumtoggle]`，不再逐个绑按钮。
-- **触屏 hover 残留**：真正的元凶是上一轮我自己加的 `.mtx tbody tr.arow:hover td { background: transparent }` —— 触屏 tap 之后 `:hover` 会一直挂着，于是那一行的底色"消失"。改为整段 `@media (hover: hover) and (pointer: fine)`，且只给 `th.rowh` 加 `inset` 竖线，**完全不碰 td 背景**。
-- 另一个坑（已修）：`.mtx.col-collapsed thead th.corner { display:flex }` 会让带 `rowspan="2"` 的 `th` 不再是 table-cell，**下面那行的通道标签整体错位一格**。改成只调 `padding` / `text-align`，保持 `display: table-cell`。
-- 真机验证（Pura 70 Pro / 374×677 dpr 3.375，`hdc` + `uitest uiInput click`）：收窄后多出两根通道列、表头与格子对齐；最终值收起后底部只剩 22px 细条且一屏多出约 60px；点任意一行格子区域，行背景**不再变化**。
-- 顺带：`ICON` 表补 `chevronsLeft/chevronsRight/chevronsUp/chevronsDown`；`.sumtoggle/.sumfold/.coltoggle/.sumbar` 样式；`node --check` 通过。
-### 2026-11-27 14:05 · 窄屏适配（表格列宽 + 导航两行）
-
-- 起因：用户问「移动端和电脑端都适配好了是吧」。实测 390px：`.mwrap` 内部宽 **2728px**（要横滑 8 屏）、导航 118px 挤成 3 行、撤销图标贴边被裁。桌面 1852px 也只能看到 6 个通道列。
-- **根因不是「缺 media query」，而是转置后列宽没跟着改**：`.mtx thead th.chanh{width:208px}` + `.mtx{width:calc(232px + ncol*208px)}` 还是「列 = 动画」时代的尺寸，而现在一列只是一个 `position/rotation/scale`，208px 太宽。同时 `@media (max-width:1023px)` / `(max-width:767px)` 两段里写的全是旧卡片类名（`.legend`、`.row`、`.card-head`、`.tags`、`.bound`、`.acc`、`.v`、`.bname`、`.base`），HTML 里 0 命中，等于死代码。
-- 改法（只动 CSS）：
-  1. 桌面列宽 `232+208n` → **`210 + 140n`**（`.mtx` 的 width、`th.chanh`、`th.corner`、`th.rowh` 四处一起改）。1852px 下可见通道列 6 → 9，12 列总宽 2728 → 1890。
-  2. 1023 档：`186 + 128n`。767 档：`168 + 118n`。
-  3. 767 档重写：`.nav` 收成两行（品牌一行 / 动作一行），`.nav-actions{flex-wrap:nowrap;overflow-x:auto}` + 隐藏滚动条、按钮 30px，导航高 118 → 84px；`.mwrap` 去左右边框与圆角吃满宽度；`thead`/`th`/`.cell` 字号 11–11.5px；`.rh-meta .cover`（「骨骼 4/8」）与 `.len` 在窄屏隐藏，行高明显变矮；`.modal`/`.statusbar`/`.toasts`/变量弹窗的 `.var-row` 都收窄。
-  4. 删掉 767 档里所有旧卡片类名的规则（`.toolbar`、`.legend`、`.card-head`、`.row`、`.bname`、`.base`、`.v`、`.acc`、`.card-empty`）——它们对应的元素早就不存在了。
-- 教训：列宽用 `140` 不是随便取的 —— `136` 会让 `variable.tcos0` 在单元格里折成两行（`.expr` 是 `white-space:pre-wrap`，故意不截断），`140` 刚好放得下。
-- 验证：390 / 820 / 1852 三档截图；`.mwrap` 宽 2728 → 1890（桌面）/ 1584（手机）；导航高 118 → 84；页面本身仍无横向溢出（`documentElement.scrollWidth == clientWidth`）。
-
-### 2026-11-27 13:08 · 变量输入框改成「拖多少改多少」
-
-- 用户：「这个变量要根据鼠标的位置去改值，鼠标划多少就增加或减少多少，而不是鼠标不动还一直在增减」。
-- 实现：`#modalBody` 上 `pointerdown` 记 `{x0, v0}`，`window` 上挂 `pointermove` / `pointerup` / `pointercancel`；位移不足 3px 不算拖动（交回给输入框正常点选、键入）；超过阈值后 `v = (v0 ?? 0) + dx * step`，`step` 默认 1、`Shift` ×10、`Alt` ×0.1。
-- **绝对值、不是累加**：每次都由「按下时的值 + 总位移」重算，所以手停就停、来回拖也不会漂移或自增。
-- 重绘走 `applyVar()`：按 ~16ms 节流 + `setTimeout` 兜底。**没用 rAF** —— 后台标签页 rAF 会被挂起，拖动时表格会僵住（第一版就是 rAF，测试脚本直接超时，页面卡在 `vscrub` 状态）。`save()` 只在松手时落盘。
-- 视觉：`.var-in{cursor:ew-resize;touch-action:none}`；拖动中 `body.vscrub`（`user-select:none` + 输入框强制高亮边框）；说明里写清「按住输入框左右拖动：拖多少改多少（1px = 1，Shift ×10，Alt ×0.1），手停就停」。
-- 验证（合成 pointer 序列）：2px → 不变；10px → `10`；同一坐标再发一次 → 仍是 `10`；`Shift` +40px → `400`；`Alt` +35px → `3.5`；松手后 `body.vscrub` 移除、`localStorage.vars` 存到 `3.5`、最终值行角标「已代入 1 个」。
-
-### 2026-11-27 12:58 · 变量取值（WB 起草，dsh 补完）
-
-- 用户需求原话：「再加个可以由用户改变 variable 和 query 的值的功能，就像 blockbench 的变量占位符一样」。WB 的 dsv4.1f 把主体写完了（未提交、未验证、未写文档），本轮接手做验证 + 四处收尾。
-- 半成品的实现：顶栏 `{ }` 变量按钮 → 弹窗按 `variable` / `query·其他` 分组列出栈里出现的标识符，一格一个 `input[type=number]`；`input` 事件即时写 `state.vars` + `render()` + `save()`；最终值行在 `hasVars()` 时对每条轴跑 `astNumeric()`，能折叠成常数就显示数字，否则退回符号式。
-- 本轮改的四处：
-  1. 新增 `usedVarCount()`，「已代入 N 个」只数**栈里真的用到、并且设了值**的（原来是 `Object.keys(state.vars).length`，删过行 / 换过栈之后会虚高）；
-  2. `collectVarNames()` 去掉「跳过停用行」——否则一停用，它的变量就从弹窗里消失，值再也改不回来；
-  3. 弹窗新增第三段「已设置但当前栈没用到 · 清空可移除」（换栈后残留的值能在这儿清掉；清空后这一段自动消失，且**只在段数真的变了时才重建弹窗**，不抢输入焦点）；
-  4. `sumCellHTML()` 的折叠判定从 `sym` 改成 `texts` —— 代完只剩 `24` 时不该再挂一个「展开」。
-- 语义边界（刻意如此）：只影响底部**最终值**那一行，格子里的原文永远不动；`t`（随时间变化）和没设值的 `query.*` 原样留在式子里。
-- 验证（Edge + 8765）：给 `variable.tcos0` 填 40 → 最终值角标「已代入 1 个」，`leftarm.rotation` 仍是 `10`（被 athena 的 `-this + 10` 抵掉）；把 sneaking/athena/sleeping 三行停用后同一格变 `40`（= `variable.tcos0`）；`query.body_y_rotation` 与 `query.sleep_rotation` 都填 0 → `root.position` 从两条长式变成 `24 / 0 / 0`、`root.rotation` 变 `-90 / 270 / 0`、`展开` 按钮消失、角标「已代入 4 个」；「全部清空」后角标消失、式子复原；刷新后 `state.vars` 从 `localStorage` 正常回来。
-- 新增 `vars.png`（变量弹窗实拍）。
-- 追加：行内格子悬停也能看到这条原文的值 —— `litValue(v)` 单独把那条字面量代入变量并折叠（`null` 表示还算不出来），`chanHTML()` 的静态分支把它拼进 `<span>` 的 `title`：「这条原文代入变量后 = 40」。没设变量时完全不输出（不产生多余 tooltip）；和「绝对值」的提示共存时用 ` · ` 连起来。
-- 注：这轮改动**没有提交**，都在工作区里（约定：等用户确认再 commit）。
-
-### 2026-11-27 12:32 · 浏览器桥接恢复，重拍 preview
-
-- 断连原因：Edge 没开 + 守护进程重启后设备记录是 revoked + MV3 service worker 约 10 秒就休眠（日志里每次「browser connected」后 10s 就 10054）。
-- 处理：用 Profile 1 启动 Edge；`bsk daemon trust-local on`；清掉 `~/.bsk/local-pairings.json` 里那条 revoked 设备（备份 `local-pairings.backup.json`）；在扩展弹窗里点一次「配对」，弹窗别关（保活 SW）。
-- 已按当前代码重拍 `preview.png`（1848×857，默认 5 行，字号为"只放大元信息"那一版）。
-- 附：`bsk open --width/--height` 不会改已有窗口尺寸，`bsk window resize` 需要 cooperate sync 的 observation；截图尺寸取决于 Edge 窗口本身。
-
-
-### 2026-11-27 12:26 · 「关于」加哔哩哔哩空间链接与头像
-
-- 用户要求把 B 站空间和头像也放进来。
-- 账号按用户的公开昵称检索得到；**UID 与主页地址只写在页面里**（页面是公开作品页，属用户本人授权的署名），不要再抄进文档、注释或提交信息里。
-- 头像：`https://api.bilibili.com/x/web-interface/card?mid=<UID>` 拿 `face` 字段（300×300，Minecraft 风格的 "Hancy" 字标），下载后 `scale=64:64` 存 `bili.png`（5.8 KB）。
-- 布局：名字下方那行改成链接 `[18px b站头像] 哔哩哔哩 @小汉西 ↗`，`target="_blank" rel="noopener"`，指向个人空间；悬停变亮 + 浅底。
-- 说明句从「界面头像取自其本人的 Minecraft 皮肤」改成「头像分别取自其 Minecraft 皮肤与哔哩哔哩个人主页」—— 现在有两张图，得说清。
-- 12:32 桥接恢复后已重拍 `preview.png`（1848×857）。
-
-
-### 2026-11-27 12:18 · 「关于」文案改正式
-
-- 用户觉得上一版太口语（「上面这张脸就是他自己的 Minecraft 皮肤，从桌宠里导出的那一张」这类），要求正式一点。
-- 现在的文案：
-  - 标题「关于」（原来是「关于这个项目」）
-  - 名字块：**汉西 · Hancy** / 哔哩哔哩 @小汉西
-  - 正文：本项目由汉西发起并主持，以 **vibe coding** 的方式与 AI 协作完成。产品定位、交互细节与全部取舍由其本人决定，实现由 AI 协助产出。
-  - 头像说明独立成句：界面头像取自其本人的 Minecraft 皮肤。
-  - 来源：动画示例逐字引自 `bedrock-samples v1.26.50.4`，未作改写。
-  - 页脚：© 2026 汉西 Hancy
-- 头像 `alt` 改成空串（名字就在旁边，重复朗读没意义）。
-- 没重拍 `preview.png`（浏览器桥接仍未连接）。
-
-
-### 2026-11-27 12:15 · 字号：撤回整体放大，只放大"确实太小"的那一档
-
-- 用户澄清：「字体大小改成之前的样式，我其实想说有些地方的字特别小需要调整一下，这种本来就能看清的不用调了」。
-- 撤回上一轮的整体 +1px：`.num` 回 12、`.expr` 回 11.5、`.boneh` 回 11.5、`.rh-top .key` 回 12.5、`.sumv` 回 10.5、`.vec i` 回 9.5 再单独调。
-- 只把 **≤10.5px 的元信息** 提到 11 左右（这些是真正看不清的）：
-  - 行号 `.idx` 10.5 → 11
-  - 时长 `.len` 10.5 → 11
-  - 徽标 `.chip` 10 → 11
-  - 覆盖率 `.cover`（`骨骼 4/8`）10 → 11
-  - 通道表头 `.chanh`（`position` / `rotation`）10 → 11
-  - 左上角 `.corner` 10 → 11
-  - 「展开」按钮 `.xbtn` 10 → 10.5
-  - `… 共 N 帧` `.more` 10.5 → 11
-  - 逐轴 `⟂` 9.5 → 10；格子角 `⟂` 10 → 10.5；轴字母 9.5 → 10.5
-- 表格主体（表达式 / 数字 / 动画名）回到原尺寸，行高也回到原样。
-- 这一轮没重拍 `preview.png`（浏览器桥接断开），12:32 连上后已按当前代码重拍。
-
-
-### 2026-11-27 12:05 · 署名（关于弹窗 + 头像）与字号上调
-
-- 用户要求：在页面上声明这是他的 vibe coding 项目 —— 中文名 **汉西**，英文 **Hancy**（姓 Jared，一般不写出），B 站 **@小汉西**；头像用他 Minecraft 皮肤的脸。
-- 头像来源：`%APPDATA%/minecraft-desktop-pet/skin.png`（64×64）。用 ffmpeg 裁 `crop=8:8:8:8`（正脸）+ `crop=8:8:40:8`（帽子层）叠加，`scale=160:160:flags=neighbor` 存成 `avatar.png`（803 B）。显示时一律 `image-rendering: pixelated`。
-- 状态栏最右侧加了作者按钮（16px 头像 + 「汉西 · Hancy」），点开 `openAbout()`：58px 头像、汉西 / Hancy · B 站 @小汉西、vibe coding 说明（「由汉西发起并主导，借助 AI 一起完成」）、示例来源、`© 2026 汉西 Hancy`。
-- 字号整体上调一档（用户：「字体有点小」）：`.num` 12→13、`.expr` 11.5→12.5、`.vec i` 9.5→10、`.boneh` 11.5→12.5、`.chanh` 10→11、`.rh-top .key` 12.5→13.5、`.sumv` 10.5→11.5。代价是行更高，5 行时第 5 行又有一点点压在最终值行后面（可滚动）。
-- `preview.png` 重拍。
-
-
-### 2026-11-27 00:20 · 顶部说明整块删掉，最终值去掉副标题
-
-- 用户：「不传入数字这个还是不要了吧，让界面简洁一些，说明性的不用太多，使用这个网站的应该都懂这些」，顶部那行提要也不要了。
-- 删掉 `.sumrow` 行头里的「不代入数字」副标题（`.sum-sub` 的 markup + CSS 一起删），现在只剩「最终值」三个字。
-- 删掉整块 `#hint`（一行提要 + 「完整说明」按钮）以及配套的 `.intro` / `.hint-line` / `.hint-more` 样式和 `#hintMore` 的绑定。需要看说明还有顶栏 `?`（16 张卡片）。
-- 净效果：表格从导航下方 20px（`.shell` 的 `padding-top`）直接开始，5 行 + 最终值行全部同屏可见（之前第 5 行被压在最终值行后面）。
-- `preview.png` 重拍。
-
-
-### 2026-11-27 00:15 · 顶部说明压成一行，把高度还给表格
-
-- 用户反馈：顶部那两段说明占了太多竖向空间，表格被挤扁。
-- 把两段文字（约 5 行、~90px）压成**一行提要** + 右侧「完整说明」按钮：
-  `行 = 动画 · 列 = 骨骼 / 通道 · 上面的行先算（this 读上面的累计）· 按住整行上下拖改顺序 · 底部一行是叠加后的最终值`
-- 删掉的内容不是丢了，本来就在顶栏 `?` 打开的说明弹窗里（「这张表怎么读」「顺序就是语义」「this」「override」等卡片）。`#hintMore` 和 `#btnDocs` 绑的是同一个 `openDocs()`。
-- 净效果：这一块从 ~90px 降到 ~34px，表格多出约 56px ≈ 多半行高度（现在 5 行能看到 4 行半，之前是 3 行半）。
-- 布局：`#hint` 改成 `display:flex; align-items:center`，左边 `.hint-line` 可换行、右边按钮 `flex:none`；窄屏时按钮仍在右侧，文字自己折行。
-- 坑：替换 `initDocs` 里的闭包时，`});` → `};` 的替换误命中了 `initModal` 的同名结尾，导致 `});` 丢失、语法报错；已按上下文精确修复。**以后改这种"箭头函数注册 → 具名函数"的写法，先看清楚有几处一样的收尾。**
-- `preview.png` 重拍。
-
-
-### 2026-11-26 23:55 · 两种「作废」分开画：override 带底，`- this` 不带
-
-- 用户要求把琥珀底加回来，理由很实在：**没有底色就分不清格子是被 override 抹的还是被 `- this` 写死的**。
-- 于是把原来共用的 `.dead` 拆成两个类：
-  - `.dead`（被下面某行的 `override_previous_animation` 作废）= **6% 琥珀底 + 琥珀划掉 + 琥珀 `⟂`**；
-  - `.cutall`（三条轴都被下面的 `- this` 写成绝对值）= **不铺底 + 灰色划掉 + 灰 `⟂`**。
-- 单轴 `- this` 的小 `⟂` 也从琥珀改成 `--text-3`，跟"作者自己写的绝对值"归一类。
-- 顺手修了个老问题：`<code class="expr">` 是 `display: block`，父级的 `text-decoration` 传不下去，所以**表达式格子一直没有划掉线**（只有纯数字有）。现在 `.dead` / `.cutall` 直接给 `.expr` 也加 `text-decoration: line-through`。
-- 验证：默认栈里 `td.cell.dead` 2 个（sneaking 的 head.position、athena 的 head.rotation，都是被 sleeping 的 override 抹的）、`td.cell.cutall` 9 个（含 `0.5 - this`）；计算样式 `text-decoration-line: line-through`，颜色 `rgb(113,113,122)` / 琥珀 60%。
-- `preview.png` 重拍。
-
-
-### 2026-11-26 23:40 · override 改成纯视觉（去掉文字）
-
-- 用户反馈：「head, root 从这里重算」这句话多余，希望**直观**体现 override。
-- 现在的视觉语言：**琥珀 = 切断**。
-  - override 行（`tr.ovon`）顶边一条 **2px 琥珀线**（`border-top`），行头底色也偏琥珀（9%）—— 一眼看到「累计到这里断」；
-  - 它抹掉的格子（`.cell.dead`）加 **6% 琥珀底**，配原有的划掉 + `⟂`，整块连成一片「作废区」，和那条线颜色呼应；
-  - 骨名不写在行里了，挪到行头 `override` 芯片的 `title`（`badgesFor()`）和 `th` 的 `aria-label`，需要时悬停/读屏能拿到完整语义。
-- 删掉 `.rh-ov` 的 markup 和 CSS；`rowHead()` 不再为 override 拼字符串。
-- `badgesFor()` 的 override 芯片提示改成带骨名的完整句：「这一行会把它碰到的骨骼（head, root）上面的累积清掉，从自己开始重新叠」。
-- 验证：`sleeping` 行顶边有琥珀线、行头偏琥珀；`sneaking` 的 head 格子是淡琥珀底 + 划掉；最终值不变。
-- `preview.png` 重拍。
-
-
-### 2026-11-26 23:20 · override 说明并进行头（去掉通栏横带）
-
-- 原来每个 override 行动画上方插一条 `tr.bandrow`（`colspan` 整行）：`上面的行在 head, root 上的累积到这一行作废 —— 下面几行从这个新起点重新叠`。太占高度，而且把表格横着切一刀。
-- 改成行头里一块 `.rh-ov`：`⟲ head, root 从这里重算`，琥珀虚线跟上方的 chips 隔开；原句完整保留在 `title` 里。
-- `render()` 里删掉了 band row 的生成；`.mtl tr.bandrow` / `.ovline` 那几段 CSS 一并去掉（`.ovline` 只有横带在用）。
-- 行头高度略增（约 20px），但整张表少了一行，净高度更省；`⟂`、`被覆盖格子划掉` 这些不变。
-- 验证：`player.sleeping` 的行头文本里出现「head, root 从这里重算」；通栏横带消失；`computeFinal` 与 override 清零逻辑没动（最终值仍是 `30/0/0`）。
-- `preview.png` 重拍。
-
-
-### 2026-11-26 23:15 · 删掉抓手图标，整行都能拖
-
-- 行首那个「⋮⋮」抓手（`.grip`）删了：它本来只是拖拽的提示，现在整行都能拖，图标反而占地方。顺带删掉 `.rh-top .grip` 的三条样式和 `ICON.grip`。
-- 拖拽起手从 `th.rowh` 放宽到 **`tr.arow` 任意位置**，只排除 `button` / `[data-exp]` / `a` / `input`（眼睛、垃圾桶、展开按钮照旧不拖）。格子里的表达式也能起手。
-- 键盘可达性搬到 `th.rowh` 自己身上：`tabindex="0"` + `aria-label="第 N 行：xxx。拖动或按上下方向键调整顺序"`，`moveRow()` 之后焦点还在这一行上；`↑ ↓ Home End` 的逻辑改成从 `closest('th.rowh[data-id]')` 取行。
-- 光标：`tr.arow > td` 和 `th.rowh` 都是 `grab`，格子里只有按钮和「展开」是 `pointer`。
-- 验证（探针，合成 KeyboardEvent）：`focusOk: true` → `ArrowDown` 后 bob 从第 1 掉到第 2，焦点仍在 `th.rowh`；`hasGrip: false`；`bsk drag` 从某个**单元格**拖到别的行，顺序正确（move 从第 1 挪到第 4）。
-- `preview.png` 重拍。
-
-
-### 2026-11-26 22:25 · 快速隐藏骨骼（面板 + Alt 独显）
-
-- 矩阵左上角加了个「骨骼」小按钮（`.bm-btn`，有隐藏时变强调色），点开是 `.bonemgr` 浮层：所有骨骼排成芯片，点一下开/关，面板**不关**，可以连着点几根；底部「全部显示 / 全部隐藏」；点外面或 Esc 收起。
-- `Alt` + 点骨骼表头 = **只看这一根**，再 Alt + 点还原（`soloBone()`）。
-- 显隐统一走 `setBonesHidden(next, label)`：一次算完再 `histPush` + `render` + `save`，批量点芯片不会塞一堆撤销记录；原来的 `hideBone` / `showBone` 也改成调它。
-- 面板挂在 `body` 上（`position: fixed`），所以 `render()` 重建表格不会把它冲掉；`scroll`（捕获）和 `resize` 时跟着按钮重新定位。
-- 验证：8 芯片 → 点 head 变 7/8 + 表头 7 列 + 顶部恢复栏出现 "head"；全部显示回 8/8；Alt+点 body 只剩 1 列，再点回 8 列；全部隐藏不会崩（顶部恢复栏 8 个 chip 全在）。
-- `preview.png` 重拍（角落多了按钮）。
-
-
-### 2026-11-26 21:58 · 拖拽改成「跟手 + 实时让位」
-
-- 用户反馈：1）拖的时候也要有动画；2）只能拖到相邻位置，跨不了行，想要手机 app 那种手感。
-- 现在的做法：按下并越过 5px 后，被拖的行加 `.lift` 并用 `translateY` **贴着指针走**；指针越过别的行的中线 → 立刻 `state.stack` 换位 + `render()`，其余行用 FLIP 从旧位置滑到新位置（190ms），被拖的行再 `place(true)` 贴回指针。松手才 `save()`。
-- 插入位算法换成「去掉被拖行之后，有多少行的中线在指针上方」→ 想在哪儿落就在哪儿落，不再受相邻限制。
-- 删掉了 `.hline`（蓝色插入线）和 `.dragtag`（跟手小标签）——行本身跟手了，这两样是干扰。
-- 加了 `host.addEventListener('dragstart', e => e.preventDefault())`，防止浏览器把拖动接管成原生拖拽（这也是之前"拖不远"的一个可能原因）。
-- 坑：替换 `initDrag` 时把紧跟在后面的 `assignColors()` / `save()` 一起截断了，页面直接 `ReferenceError`，已从 git 恢复。**下次用「函数名→下一个函数名」的区间替换，别用模糊结束标记。**
-
-
-### 2026-11-26 20:20 · 最终值改成「符号叠加，不代入数字」
-
-- 用户要求：式子里的 `query` / `variable` 不要硬算成数字，直接带着。于是把数值采样换成 **AST 叠加**：`astFrom` 解析原文 → `astSub` 把 `this` 换成上一行的 AST → `astSum` 相加 → `astFold` 折叠常量 → `astPrint` 打印。
-- **顺手修了一个语义错误**：以前按「覆盖」算（`总 = 本行值`），但引擎是**相加**的（`-this` = 清零）。改成 `总 = 上一行 + 本行值` 之后，`-this + 10` 才真的等于 10。默认栈里 `leftarm.rotation` 从错误的 `-62` 变成正确的 `10`（`variable.tcos0` 与 `-this` 直接抵消），`body.rotation` 从 `-0.5` 变成 `0`。
-- `astSum` 会做项级抵消：结构相同、符号相反的直接消掉（`this` 与 `-this` 是同一对象引用，`===` 即可判），常量合并，重建后按优先级打印（`math.cos(x)`、`(a + b) * c`）。
-- 删掉彻底没用的 `sampleChannel` / `num` / `hermite` / `applyWeight` / `animLocalTime` / `baseCtx` / `MOLANG_VARS` / `evalMolang`（−4.4KB）；`Molang` 只多导出 `evalAst`（折叠常量用）和 `FN`。
-- 最终值格子太长时和普通格子一样 `.clip` + 「展开」（键用 `sum|骨骼|通道`，和 `item.id|…` 不冲突）。
-- 验证：`head.rotation` = 30/0/0、`leftarm.rotation` = 10/0/-5、`root.rotation` = `-90 / 270 - query.sleep_rotation - query.body_y_rotation / 0`、`root.position` = 两条带 `query` 的长式子（`.sumv` 实测 `clientWidth 174 < scrollWidth 867`，省略号生效）。
-
-### 2026-11-26 17:35 · 最终值去掉时间 + 换序加动画
-
-- **最终值不再有时间**（用户：「最终值和时间没有关系」）：删掉时间滑块、`state.t`、`paintSum()`；`computeFinal()` 不再收 `t`，`strictQuery = {}`（所有 query 都不喂），关键帧通道直接标 `t`。渲染三态：数值 / `t`（随时间变化）/ `—`（缺变量），行头写成「最终值 · 不代入时间」。
-- **换序动画**：`snapRows()` + `playRows()` 做 FLIP——重建前记每行 `top`，重建后 `translateY(旧-新)` 再过渡回 0（220ms，`cubic-bezier(.2,.8,.2,1)`）。`moveRow` / 拖拽落手 / 撤销重做都走 `renderFlip()`；`prefers-reduced-motion` 跳过；后台标签页 rAF 被挂起，用 90ms 定时器兜底；`snapRows()` 开头先清残留 transform，避免从错位置起跳。
-- 验证：探针里 `moveRow(0,2)` 后三行的 transform 分别是 `translateY(86px)/86px/-159px`（方向、幅度正确），落定后归零；`#tslider` 已不存在，行头文本「不代入时间」。
-
-### 2026-11-26 17:15 · 底部「最终值」行（当天 17:35 已去掉时间滑块）
-
-- 把停摆很久的求值链（`sampleChannel` / `animLocalTime` / `applyWeight`）接上：表格底部多一行 **sticky 的「最终值」**，按当前顺序叠加，`this`、`override`、`blend_weight` 都算进去；左边一个时间滑块（0 ~ 最长动画时长），拖一下整行数字实时变。
-- `sampleChannel()` 现在多返回 `bad:[bool,bool,bool]`（该轴是否引用了没值的符号），`computeFinal()` 再按「override 清零 → 直写覆盖 → 读 this 才继承脏值」的规则往下传。
-- **不编数**：`ctx.vars = {}`，`strictQuery` 只放 `anim_time / life_time / delta_time / frame_alpha / modified_distance_moved`；`QUERY` 里那些演示假值在严格模式下走 `miss()`。算不出的轴显示 `—`，悬停看缺了哪个符号、最后是哪一行写的。
-- 验证（探针，iframe 内直接调 `computeFinal`）：bob 的 z 在 t=0 → **5.73**、t=0.5 → **4.645**；`variable.tcos0` 单行 → `bad[0]=true`；`variable.tcos0` 后接 `-this + 10` → **10** 且 `bad=false`（未知量被抵消）。
-- `preview.png` 重拍。
-
-### 2026-11-26 16:42 · 面板加宽 + 长值可展开
-
-- **面板加宽**：`.shell` 的 `max-width` 1120 → **1560**（`.shell > #hint` 单独收在 1040px，说明文字不会拉成一条长线）。同屏能多看到一列多。
-- **长值默认折叠、可展开**：新增 `isLongChannel()`（单轴 > 44 字符或关键帧 > 4 个算长）与 `state.openCells`。长的格子在 `.clip` 下：静态通道每条轴 `nowrap + ellipsis` 一行，关键帧只渲染前 3 帧 + `… 共 N 帧`；格子右下角一个 `展开 ⌄` 按钮，点开变 `收起 ⌃` 并完整换行/列出全部。
-- 数据上：默认 5 行里有 4 个格子会被折叠（bob 左右臂 z、sleeping 的 root.position / root.rotation），行高从 338px 量级回落到 86px。
-- 展开状态只放内存（`state.openCells`，key = `item.id|骨骼|通道`），刷新即折叠；撤销/重排后仍跟着同一段动画。
-- 说明弹窗、顶部提示同步（「长表达式默认收成一行，点格子里的展开看全文」）。
-- `preview.png` 重拍（1848×857）。
-
-### 2026-11-26 16:12 · 修「外面滚一层、表格滚一层」的抢滚轮
-
-- 原因：`body` 会滚（`.shell` 底部 padding 72px + `.mwrap` 的 `max-height: calc(100vh - 168px)`，整页比视口高约 70px），而表格自己也是滚动容器。滚轮在表上滚到尽头会把剩余的滚动量传给 body；在说明文字上滚又会让整页动、表格跟着位移。
-- 改法：`body` 改成 `flex column + overflow: hidden`；`.shell` = `flex: 1 1 auto; min-height: 0` 的 flex column；`.mwrap` = `flex: 1 1 auto; min-height: 0; overscroll-behavior: contain`，去掉写死的 `max-height`；底部 padding 72 → 56（状态栏 fixed 40 + 16 缝）。
-- 连带修：空栈时 `.mwrap` 会因 `flex: 1` 撑出一块空白边框，`render()` 里现在连 `#mwrap` 一起 hidden，`#empty` 自己 `flex: 1` 铺满。
-- 实测：`docScroll [685,685]` / `bodyScroll [685,685]` / `bodyCanScroll false`，`mwrap` 高 460、内容 784（只有它在滚），`overscroll-behavior: contain`，表格底边到状态栏 16px。
-- `preview.png` 重拍（表格现在铺满到状态栏上方）。
-
-### 2026-11-26 15:52 · 行头可拖范围放大 + 修 sticky 行头透明
-
-- **横向滚动时动画名重影**：`.rowh.ov` 用的是 `--amber-soft`（9% alpha），sticky 行头本该挡住下面滚过去的格子，结果透了上来。改成 `color-mix(in srgb, var(--amber) 9%, var(--card))`，实测 computed `background-color` 已是无 alpha 的 `color(srgb …)`。
-- **可拖范围**：以前只有 16px 的抓手能起手，现在整块 `th.rowh`（眼睛/垃圾桶除外）都能拖；加了 5px 阈值 + 「竖向位移 > 横向」判定，轻点仍是开关、横滑不会误触；拖完 300ms 内的 click 直接忽略（`lastDragAt`），避免 dragging 结束时把行点成停用。抓手热区也从 16px 撑到 24×29（`padding:4px` + 负 margin，布局不动）。
-- `cursor`：行头 `grab`，`.key` / `.acts button` 保持 `pointer`。
-- 验证：`bsk drag` 从行头中部（不是抓手）把第 3 行拖到第 2 行 → 顺序变了、状态栏仍是「5 个动画」没被误停用；点撤销按钮复原；`grip` 实测 24×29。
-- `preview.png` 无需重拍（外观只有 override 行底色从半透明变实色，肉眼几乎一致）。
-
-### 2026-11-26 15:35 · 撤销/重做 + `- this` 也算「被覆盖」+ 骨骼覆盖率
-
-- **撤销 / 重做**：`hist` 快照（只记 item 引用 + 启停 + `hiddenBones`，上限 80 步），`histPush(label)` 在每个改栈动作前打点。`Ctrl+Z` / `Ctrl+Y` / `Ctrl+Shift+Z` + 顶栏两个箭头（禁用态 + title 显示上一步是什么）。输入框内不拦截。弹窗开着的撤销会 `libSyncRows()` 同步勾选。
-- **`- this` 的覆盖效果**：新增 `axisCancels()` + `shadow`（`bone|base|ax → 最后一个抵消行`）。系数 -1 且没被乘除的 `- this` 视为「写成绝对值」，它上面的行在这条轴上被划掉；三条轴全中时按整格划掉，视觉与 override 一致。像 `this * 0.5`、`2 * -this` 不算。
-- **骨骼覆盖率**：行头加 `骨骼 4/8`（title 列涉及/未涉及）；完全不涉及的格子加淡斜纹，与「有骨骼没通道」的 `·` 区分开；说明弹窗新增「空与划掉」卡片。
-- 顺带：行头 chips 改成 10px 等宽分色（之前是继承 12.5px 的裸文本，容易和正文混）；`.rh-meta` 允许换行，chips 不再被裁；`Esc` 关弹窗。
-- **验证**：合成用例断言 `- this` 三种情形（单轴 / 三轴 / 覆盖率）—— `partial{cut:1,marks:1,dead:0}`、`full{dead:1}`、`cover:["骨骼 3/3","骨骼 1/3"]`、`bnone:2`；真机 Ctrl+Z/Ctrl+Y、隐藏列撤销、按钮撤销均通过。
-- `preview.png` 重拍（深色 1848×857）。
-
-### 2026-11-26 14:52 · 通道值完整显示 + 骨骼列可收起
-
-- **不再折叠**：`.expr` 去掉 `text-overflow: ellipsis` + `nowrap`，改 `pre-wrap` + `break-word`；关键帧从「前 2 帧 + 末帧」改成**全部列出**。列宽 144 → 208px（不然常见的 20 字符表达式会折两行）。
-- **骨骼列可收起**：点表头（`root` / `head` 那一格）收起该骨骼的通道列；`#colbar` 显示「已隐藏 N 根骨骼」+ chip + 全部显示；`state.hiddenBones` 落 `localStorage`（可选字段，未升 `v`）。
-- **顺手修的文案**：
-  - 导出弹窗写着「当前时间点每个骨骼三个通道的最终值（已按顺序叠加…）」—— 实际导出的是顺序 + 边界 + 原文，**不求值**，已改。
-  - 说明弹窗「关键帧只列前 3 帧」「this 徽标 + 淡紫底」都是旧版描述，已改；新增「只看想看的骨骼」卡片。
-  - 顶部说明补一句「点骨骼表头可以收起它的通道列」。
-- **验证**（bsk + 8765）：长表达式完整换行（无省略号）；点 `head` 表头 → 列消失 + 提示栏出现；点 chip / 全部显示 → 复原；隐藏后刷新 → 仍在；把 8 根骨骼全部隐藏 → 表格只剩行首，不崩。
-- `preview.png` 重拍（1848×857，深色）。`samples.png` 未变（示例库弹窗这轮没动）。
-
-### 2026-11-26 14:22 · 示例库「整套加入」改成「替换整栈」+ FMBE 组顺序对齐 wiki
-
-- **替换整栈**（`libGrabGroup()` 重写，`index.html` 3 处）：以前是「把缺的追加进来」，现在是 `state.stack = 这一组`，其他动画全删，`assignColors()` 重排配色，toast 报「移除 N 个」。按钮文案从「整套加入」改成「替换整栈」并加 `title` 说明，弹窗顶部说明同步改口。
-- **FMBE 顺序**：组里 `parrot.dance` 原来排在 `minecart.move` 前面，与 wiki `render.mcfunction` 相反（那边是 `wiki.ypos` 的 minecart 先、`wiki.zpos` 的 dance 后）。已按 wiki 顺序改正，组说明里注明「顺序 = render.mcfunction 里 /playanimation 的先后」。`adv` 组是同一序列的前 5 条，本来就对，没动。
-- **验证**（bsk）：对 FMBE 点「替换整栈」→ 8 行，顺序与 wiki 逐条一致，toast「移除 4 个」，弹窗勾选态同步（core 只剩 sleeping 打勾、fmbe 全勾、adv 全勾）；再对 core 点一次 → 回到默认 5 行。
-- `samples.png` 重拍（按钮改名了）；`preview.png` 无需重拍（矩阵没动）。
-
-### 2026-11-26 14:05 · 修「停用 override 行仍然生效」
-
-- **现象**：点掉 `player.sleeping` 的眼睛后，琥珀横带照样画、`sneaking`/`athena_pose` 的 `head` 格子照样划掉，和 §10「停用行不参与 this 与 override 判定」自相矛盾。
-- **原因**：`buildMatrix()` 的 `bounds` 取的是 `rows.filter(r => r.ov)`，`render()` 也是 `if (r.ov)` —— 只判了「这是不是一段 override 动画」，没判「它此刻是否启用」。
-- **修法**（`index.html` 3 处，+8 −3）：行记录加 `ovOn = ov && item.enabled`；`bounds` 只收 `ovOn`；横带改 `if (r.ovOn)`；`ov` 留着给行首琥珀竖条（那是身份，停用也还是 override 动画）。
-- **验证**（bsk + `http://127.0.0.1:8765`，浅/深两套主题都看过）：停用 `sleeping` → 无「作废」横带、`⟂` 为 0、状态栏 `5 个动画（4 启用）· 7 根骨骼 · 10 个通道`；重新点亮 → 横带回来、`⟂` 回到 2 个格子。
-- **基线**：git `0eeaf25`（改前）→ 修复提交。
-
-### 同批顺带
-
-- `git init`（`main`），`.gitattributes` 写 `* -text` 关掉行尾转换（`git show :index.html` 与工作区 sha256 一致）。
-- 文档纠错：关键帧列表是**前 2 帧 + 末帧**（不是前 3）；`⟂` 在**右下角**（不是右上角）；文件行数/体积更新。
-- `preview.png` / `samples.png` 按当前代码重拍。
-
----
-
-## 附录 A · 用户原始设计规范（逐字保留）
-
-> 下面这段是用户第二次给的《网站 UI / UX 设计规范》全文，**原样保留**，作为视觉验收的唯一依据。
-> 实现在 §9 已说明；与本文冲突时，以本文为准。
-
-### 1. 整体设计风格（Design Language）
-
-采用现代极简主义（Modern Minimalism）与精密数字工业设计（Digital Industrial Design）相结合的设计语言。
-
-整体视觉应当具有以下特征：
-
-- 高级、克制、理性、干净、专业。
-- 具有现代科技产品的精密感，但不过度追求科幻效果。
-- 通过排版、留白、空间关系和视觉层次建立设计美感，而非依赖大量装饰。
-- 参考 Linear、Vercel、Apple、Raycast 等产品的设计理念，但不要直接复制其界面。
-- 界面应当像经过专业设计团队长期打磨的成熟商业产品，而非通用的 AI 生成模板。
-- 保持全局设计语言高度统一。
-
-### 2. 色彩系统（Color System）
-
-以低饱和度中性色为主，建立清晰且统一的色彩体系。
-
-深色模式：
-
-- 页面背景：`#09090B`
-- 次级背景：`#111113`
-- 卡片背景：`#141417`
-- 悬浮背景：`#1C1C21`
-- 边框颜色：`#27272A`
-- 主文字：`#F4F4F5`
-- 次级文字：`#A1A1AA`
-- 辅助文字：`#71717A`
-- 强调颜色：`#6366F1`
-
-浅色模式：
-
-- 页面背景：`#FAFAFA`
-- 卡片背景：`#FFFFFF`
-- 次级背景：`#F4F4F5`
-- 边框颜色：`#E4E4E7`
-- 主文字：`#18181B`
-- 次级文字：`#52525B`
-- 强调颜色：`#4F46E5`
-
-强调色仅用于主要操作按钮、选中状态、焦点状态及重要交互反馈。
-
-避免大面积高饱和度色彩、彩虹渐变、过度发光以及无意义的背景光斑。
-
-### 3. 字体与排版（Typography）
-
-英文优先使用 Inter、Geist 或 SF Pro，中文优先使用思源黑体或系统原生无衬线字体。
-
-代码及数值内容使用 JetBrains Mono 或 Geist Mono。
-
-建立明确的字号层级：
-
-- 展示级标题：48–64px
-- 页面一级标题：32–40px
-- 模块标题：20–24px
-- 卡片标题：15–18px
-- 正文内容：14–16px
-- 辅助说明：12–13px
-- 微型标签：11–12px
-
-标题采用适度紧凑的字间距，正文保持舒适的阅读行高。
-
-避免所有文字均使用粗体。通过字号、字重、颜色、位置及留白共同建立视觉层级。
-
-### 4. 页面布局（Layout）
-
-采用模块化布局系统，以 8px 为基础间距单位，允许使用 4px 作为细节调整单位。
-
-- 使用响应式 12 列栅格系统。
-- 内容区域保持合理的最大宽度。
-- 主要内容与辅助信息应具有明确的主次关系。
-- 页面不同模块之间保留充分的呼吸空间。
-- 同类组件保持一致的对齐方式和间距。
-- 避免无意义的容器嵌套。
-- 不要将所有内容机械地放入独立卡片。
-- 根据内容性质灵活使用分隔线、留白、列表及非对称布局。
-- Bento Grid 仅在适合展示多个独立功能模块时使用。
-
-使用户能够在进入页面后的短时间内理解当前页面的功能及主要操作。
-
-### 5. 导航系统（Navigation）
-
-导航栏应当简洁、轻量且具有明确的结构。
-
-顶部导航栏：
-
-- 高度约为 56–64px。
-- 使用细微的底部分隔线。
-- Logo、导航入口及用户操作区域清晰排列。
-- 当前页面通过文字颜色、细线或低对比度背景进行标识。
-- 避免体积过大的导航元素。
-
-侧边栏：
-
-- 适用于后台管理、开发工具及复杂应用。
-- 展开宽度为 220–260px。
-- 支持折叠与展开。
-- 使用统一的线性图标。
-- 通过合理的分组和留白组织功能入口。
-- 选中状态使用低饱和度背景，避免过于醒目的高亮色块。
-
-### 6. 卡片与容器（Surface & Cards）
-
-卡片应具有轻量、精致、克制的视觉表现。
-
-- 圆角控制在 8–12px。
-- 使用 1px 细边框。
-- 优先通过背景色差与边框区分层级。
-- 阴影保持柔和且低透明度。
-- 卡片内部使用一致的间距规则。
-- 卡片标题、主要内容与辅助信息之间具有明确层级。
-- 仅为可交互卡片提供 Hover 反馈。
-
-禁止滥用超大圆角、厚重阴影、玻璃拟态、渐变描边和多层卡片嵌套。
-
-### 7. 按钮与交互组件（Components）
-
-按钮分为 Primary、Secondary、Ghost、Destructive 四种类型。
-
-- 按钮高度通常为 36–44px。
-- 移动端交互区域至少为 44×44px。
-- 圆角为 6–8px。
-- 图标与文字保持合理间距。
-- 主要按钮突出核心操作。
-- 次级按钮使用低对比度背景或细边框。
-- 次要操作使用 Ghost Button。
-- 危险操作使用明确但不过度刺眼的警示颜色。
-
-输入框、下拉菜单、复选框、开关、标签页、弹窗及提示组件必须遵循统一的视觉规范。
-
-所有交互组件应包含 Default、Hover、Active、Focus、Disabled、Loading 等适用状态。
-
-### 8. 图标系统（Iconography）
-
-统一使用 Lucide Icons 或同类线性图标库。
-
-- 常规尺寸为 16px、18px、20px、24px。
-- 线条粗细保持一致。
-- 图标风格简洁、几何化。
-- 图标颜色继承所在组件的视觉层级。
-- 避免混用多种图标库。
-- 不使用 Emoji 替代正式功能图标。
-- 仅在图标含义清晰或具有文字说明时使用独立图标按钮。
-
-### 9. 动效与微交互（Motion Design）
-
-动效应服务于交互反馈、空间关系和状态变化，而不是单纯装饰。
-
-- Hover 过渡时间：120–180ms。
-- 常规状态变化：150–250ms。
-- 弹窗、抽屉及复杂过渡：200–350ms。
-- 使用自然、平滑的缓动曲线。
-- 优先对 opacity 和 transform 属性进行动画处理。
-- 下拉菜单采用轻微位移与透明度变化。
-- 页面内容加载使用简洁的 Skeleton 状态。
-- 操作完成后提供明确且轻量的反馈。
-- 支持 prefers-reduced-motion。
-
-避免大幅缩放、强烈弹跳、持续闪烁、过度视差滚动及干扰正常操作的动画。
-
-### 10. 数据可视化（Data Visualization）
-
-如果网站涉及数据展示，应采用精密、专业且易于阅读的可视化风格。
-
-- 使用简洁的坐标轴和低对比度网格线。
-- 通过有限的色彩区分数据系列。
-- 重要数据采用更高的视觉权重。
-- 数字使用等宽数字特性，保持纵向对齐。
-- Tooltip 应清晰展示数据名称、数值及单位。
-- 图表、表格和筛选器保持统一的设计语言。
-- 避免无意义的三维图表和装饰性视觉效果。
-
-### 11. 响应式设计（Responsive Design）
-
-完整适配桌面端、平板端与移动端。
-
-- 1440px 及以上：充分利用桌面空间。
-- 1024–1439px：保持完整布局及合理内容密度。
-- 768–1023px：调整栅格结构和导航方式。
-- 768px 以下：采用移动端优先布局。
-
-移动端不能只是桌面端界面的等比例缩小，而应根据屏幕尺寸重新组织内容、交互方式及视觉层次。
-
-保证文字可读、按钮易于点击，并避免不必要的横向滚动。
-
-### 12. 可访问性与用户体验（Accessibility）
-
-- 遵循 WCAG 2.2 AA 可访问性原则。
-- 确保文字具有足够的颜色对比度。
-- 支持键盘导航。
-- 为交互元素提供明确的焦点状态。
-- 使用语义化 HTML。
-- 不单独依赖颜色传达状态。
-- 为异步操作提供加载、成功及失败反馈。
-- 完善空状态、错误状态及无搜索结果状态。
-- 保证页面布局在加载过程中尽量稳定。
-
-### 13. 工程实现规范（Implementation）
-
-将视觉设计抽象为统一的 Design Tokens，包括：
-
-- Color
-- Typography
-- Spacing
-- Border Radius
-- Shadow
-- Z-index
-- Transition
-- Breakpoints
-
-建立可复用的组件体系，避免在不同页面中重复定义相同样式。
-
-优先使用 CSS Variables 管理主题及全局视觉属性。
-
-如果项目已经存在技术栈和组件体系，应优先兼容现有架构，不要仅为了修改 UI 而重构无关业务逻辑。
-
-确保所有按钮、导航入口、表单及交互组件具备真实功能，不要以静态占位元素伪装完整功能。
-
-### 14. 避免典型 AI 生成网页风格
-
-严格避免以下设计问题：
-
-- 千篇一律的紫蓝色渐变背景。
-- 大面积玻璃拟态效果。
-- 所有模块均采用大圆角卡片。
-- 无意义的胶囊状标签。
-- 随意添加宣传性英文小标题。
-- 重复出现的三列功能卡片。
-- 过度巨大的 Hero 标题。
-- 装饰性光球、粒子及霓虹发光。
-- 大量无实际意义的渐变文字。
-- 过度使用阴影、动画和视觉装饰。
-- 为了填充空间而添加虚假统计数据。
-- 视觉结构完全对称且缺乏内容层次。
-
-### 15. 最终设计目标
-
-最终网站应该具有成熟商业软件的完成度、专业开发工具的精密感以及高级消费级产品的审美水平。
-
-在视觉表现上强调克制、秩序、细节和一致性；在用户体验上强调直觉、效率、流畅性和可访问性。
-
-每一个设计元素都应具有明确的存在理由。优先考虑内容本身，而不是为了展示设计技巧而设计。
-
----
-
-## 附录 B · 规范落地对照表
-
-| 规范条目 | 当前实现 | 状态 |
-| --- | --- | --- |
-| §2 双主题色板 | `:root` / `html[data-theme=light]` 两套 CSS 变量，逐值对齐 | ✅ |
-| §3 字体层级 | 正文 13px / 辅助 11.5–12px / 微标 10.5px；数值全用 `--mono` | ⚠️ 页面没有 48–64px 展示级标题（工具型界面，故意不做 Hero） |
-| §4 8px 栅格 | 间距基本为 4/8/12/16 的倍数 | ✅ |
-| §5 导航 56–64px | `.nav` 高 60px + 1px 底边 | ✅ |
-| §6 圆角 8–12 + 1px 边 | `--r-md 8` / `--r-lg 12`，全站 1px `--border` | ✅ |
-| §7 按钮 34–44px | `.btn` 34px / `.btn.tiny` 28px | ⚠️ tiny 按钮低于 36px（表格内空间所限，桌面端可接受；移动端应放大到 44px 触控区） |
-| §8 图标 | 内联 SVG 统一 `class="icon"` 16px / stroke 1.75，无 emoji | ✅ |
-| §9 动效 | hover 140ms、弹窗 200/280ms、`prefers-reduced-motion` 全关 | ✅ |
-| §10 数据可视化 | 矩阵表格、低对比度分隔线、数字等宽右对齐 | ✅ |
-| §11 响应式 | 断点 1023 / 767；窄屏缩列宽、隐藏说明 | ⚠️ 矩阵本身必须横向滚动（列多），移动端仅保证不溢出页面 |
-| §12 可访问性 | 行首抓手可聚焦（`role="button"` + `tabindex="0"` + `aria-label`），`↑/↓` 换序、`Home/End` 到首末行；眼睛/垃圾桶有 `aria-label`；`<table aria-label>` + `scope="colgroup"/"col"/"row"`；全局 `:focus-visible` 焦点环 | ✅ 已补（2026-11-26 实测：ArrowDown 把第 1 行移到第 2、焦点留在抓手、`#stHint` 同步） |
-| §13 Design Tokens | 颜色/圆角/过渡全部走 CSS 变量 | ✅ |
-| §14 反 AI 味 | 无渐变背景、无玻璃拟态、无光球、无假数据 | ✅ |
-
-### 结论
-
-视觉层合规，**§12 的键盘可达性缺口已补齐**（2026-11-26）：`.grip` 聚焦后 `↑/↓` 移动当前行、`Home/End` 跳到首末行，移动后焦点保持在原抓手并更新状态栏提示；行首眼睛/垃圾桶是原生 `<button>` 且带 `aria-label`；表头补了 `scope="colgroup"/"col"/"row"`，`<table>` 带 `aria-label`。焦点环用全局 `:focus-visible`（`outline: 2px solid var(--accent)`，第 135 行），`.grip` 另外加了 `cursor:grab` 与 hover/focus 底色。
-
-仍可继续打磨的方向（非阻塞）：
-
-1. `.btn.tiny`（28px）在移动端 < 44px 触控标准，可只在窄屏放大；
-2. 矩阵横向滚动时可以再冻结骨骼表头行；
-3. 拖拽仍无边缘自动滚动。
+const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入 · Ctrl+Z 撤销';
+function applyTheme(t, persist) {
+  const dark = t !== 'light';
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  if (persist) { try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) { /* 忽略 */ } }
+  const d = $('#icoThemeDark'), l = $('#icoThemeLight'), b = $('#btnTheme');
+  if (d) d.hidden = dark;
+  if (l) l.hidden = !dark;
+  if (b) b.setAttribute('aria-label', dark ? '切换到浅色模式' : '切换到深色模式');
+}
+function initTheme() {
+  let t = null;
+  try { t = localStorage.getItem(THEME_KEY); } catch (e) { /* 忽略 */ }
+  if (t !== 'light' && t !== 'dark') t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  applyTheme(t, false);
+  const b = $('#btnTheme');
+  if (b) b.addEventListener('click', () => {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark', true);
+  });
+}
+
+/* ---------------- 按钮 loading 态 ---------------- */
+function setBusy(on) {
+  const b = $('#btnImport');
+  if (!b) return;
+  if (on) {
+    if (!b.dataset.idle) b.dataset.idle = b.innerHTML;
+    b.classList.add('loading');
+    b.innerHTML = ic('loop') + '解析中';
+  } else if (b.dataset.idle) {
+    b.classList.remove('loading');
+    b.innerHTML = b.dataset.idle;
+    delete b.dataset.idle;
+  }
+}
+
+function toast(msg, kind) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  const icon = kind === 'good' ? 'ok' : kind === 'bad' ? 'warn' : 'info';
+  el.innerHTML = ic(icon) + '<span>' + msg + '</span>';
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 2300);
+  setTimeout(() => el.remove(), 2700);
+}
+/* 数值格式化：旋转 1 位、其它 2 位，去掉尾随 0，NaN → — */
+function fmtV(v, base) {
+  if (v == null || !isFinite(v)) return '—';
+  const d = base === 'rotation' ? 1 : 2;
+  let s = v.toFixed(d);
+  if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  if (s === '-0') s = '0';
+  return s;
+}
+
+/* ---------------- Molang（迷你求值器） ---------------- */
+const DEG = Math.PI / 180;
+/* 未知标识符：按 0 计算并记录，供 UI 提示「这个符号没求出来」 */
+function miss(ctx, nm) {
+  if (ctx && ctx.miss && ctx.miss.length < 8) ctx.miss.push(nm);
+}
+const Molang = (() => {
+  const IDENT = /[A-Za-z_][A-Za-z0-9_.]*/y;
+  const NUM = /(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/y;
+
+  function lex(src) {
+    const out = [];
+    let i = 0;
+    while (i < src.length) {
+      const c = src[i];
+      if (/\s/.test(c)) { i++; continue; }
+      if (/[0-9.]/.test(c) && (c !== '.' || /[0-9]/.test(src[i + 1] || ''))) {
+        NUM.lastIndex = i;
+        const m = NUM.exec(src);
+        out.push({ t: 'num', v: parseFloat(m[0]) }); i += m[0].length; continue;
+      }
+      if (/[A-Za-z_]/.test(c)) {
+        IDENT.lastIndex = i;
+        const m = IDENT.exec(src);
+        out.push({ t: 'id', v: m[0] }); i += m[0].length; continue;
+      }
+      const three = src.substr(i, 2);
+      if (three === '==' || three === '!=' || three === '<=' || three === '>=' || three === '&&' || three === '||') {
+        out.push({ t: 'op', v: three }); i += 2; continue;
+      }
+      if ('+-*/%()<>!?:,'.indexOf(c) >= 0) { out.push({ t: 'op', v: c }); i++; continue; }
+      out.push({ t: 'bad', v: c }); i++;
+    }
+    return out;
+  }
+
+  const BIN = {
+    '||': 1, '&&': 2, '==': 3, '!=': 3, '<': 4, '>': 4, '<=': 4, '>=': 4,
+    '+': 5, '-': 5, '*': 6, '/': 6, '%': 6
+  };
+
+  function parse(tk) {
+    let p = 0;
+    const peek = () => tk[p] || { t: 'eof' };
+    const eat = (v) => { const t = tk[p]; if (t && (t.v === v || t.t === v)) { p++; return t; } return null; };
+
+    function primary() {
+      const t = peek();
+      if (!t || t.t === 'eof') return { k: 'num', v: NaN };
+      if (t.t === 'num') { p++; return { k: 'num', v: t.v }; }
+      if (t.t === 'id') {
+        p++;
+        if (peek().t === 'op' && peek().v === '(') {
+          p++;
+          const args = [];
+          if (!(peek().v === ')')) {
+            for (;;) {
+              args.push(expr(0));
+              if (eat(',')) continue;
+              break;
+            }
+          }
+          eat(')');
+          return { k: 'call', name: t.v, args };
+        }
+        return { k: 'id', name: t.v };
+      }
+      if (t.t === 'op' && t.v === '(') {
+        p++;
+        const e = expr(0);
+        eat(')');
+        return e;
+      }
+      if (t.t === 'op' && (t.v === '-' || t.v === '+' || t.v === '!')) {
+        p++;
+        const e = unary();
+        return t.v === '-' ? { k: 'neg', a: e } : t.v === '!' ? { k: 'not', a: e } : e;
+      }
+      p++;
+      return { k: 'num', v: NaN };
+    }
+    function unary() { return primary(); }
+    function expr(minp) {
+      let left = unary();
+      for (;;) {
+        const t = peek();
+        if (!(t.t === 'op' && BIN[t.v])) break;
+        const prec = BIN[t.v];
+        if (prec < minp) break;
+        p++;
+        const right = expr(prec + 1);
+        left = { k: 'bin', op: t.v, a: left, b: right };
+      }
+      return left;
+    }
+    const root = expr(0);
+    return () => root;
+  }
+
+  const DEG = Math.PI / 180;
+  const FN = {
+    'math.abs': a => Math.abs(a[0]),
+    'math.ceil': a => Math.ceil(a[0]),
+    'math.floor': a => Math.floor(a[0]),
+    'math.round': a => Math.round(a[0]),
+    'math.trunc': a => Math.trunc(a[0]),
+    'math.frac': a => a[0] - Math.trunc(a[0]),
+    'math.mod': a => ((a[0] % a[1]) + a[1]) % a[1],
+    'math.pow': a => Math.pow(a[0], a[1]),
+    'math.sqrt': a => Math.sqrt(a[0]),
+    'math.exp': a => Math.exp(a[0]),
+    'math.ln': a => Math.log(a[0]),
+    'math.sin': a => Math.sin(a[0] * DEG),
+    'math.cos': a => Math.cos(a[0] * DEG),
+    'math.tan': a => Math.tan(a[0] * DEG),
+    'math.asin': a => Math.asin(a[0]) / DEG,
+    'math.acos': a => Math.acos(a[0]) / DEG,
+    'math.atan': a => Math.atan(a[0]) / DEG,
+    'math.atan2': a => Math.atan2(a[0], a[1]) / DEG,
+    'math.min': a => Math.min.apply(null, a),
+    'math.max': a => Math.max.apply(null, a),
+    'math.clamp': a => clamp(a[0], a[1], a[2]),
+    'math.lerp': a => lerp(a[0], a[1], a[2]),
+    'math.lerp_rotate': a => lerp(a[0], a[1], a[2]),
+    'math.random': a => a.length >= 2 ? lerp(a[0], a[1], Math.random()) : Math.random(),
+    'math.hermite_blend': a => { const t = a[0]; return t * t * (3 - 2 * t); },
+    'math.sign': a => Math.sign(a[0]),
+    'math.die_roll': a => a[0] || 1,
+    'query.is_moving': () => 1,
+    'query.is_on_ground': () => 1
+  };
+  const QUERY = {
+    'query.anim_time': c => c.anim_time,
+    'query.life_time': c => c.life_time,
+    'query.delta_time': c => c.delta_time,
+    'query.frame_alpha': c => c.frame_alpha,
+    'query.modified_distance_moved': c => c.modified_distance_moved,
+    'query.ground_speed': c => 4.317,
+    'query.time_of_day': c => 6000,
+    'query.cardinal_facing': c => 0,
+    'query.body_y_rotation': c => (c.life_time * 40) % 360,
+    'query.sleep_rotation': c => 0,
+    'query.vertical_speed': c => 0,
+    'query.health': c => 20,
+    'query.max_health': c => 20
+  };
+
+  const cache = new Map();
+  function compile(src) {
+    let f = cache.get(src);
+    if (!f) { try { f = parse(lex(src)); } catch (e) { f = () => ({ k: 'num', v: NaN }); } cache.set(src, f); }
+    return f;
+  }
+
+  function evalNode(n, ctx) {
+    switch (n.k) {
+      case 'num': return n.v;
+      case 'neg': return -evalNode(n.a, ctx);
+      case 'not': return evalNode(n.a, ctx) ? 0 : 1;
+      case 'bin': {
+        const a = evalNode(n.a, ctx);
+        if (n.op === '&&') return a ? (evalNode(n.b, ctx) ? 1 : 0) : 0;
+        if (n.op === '||') return a ? 1 : (evalNode(n.b, ctx) ? 1 : 0);
+        const b = evalNode(n.b, ctx);
+        switch (n.op) {
+          case '+': return a + b; case '-': return a - b; case '*': return a * b;
+          case '/': return a / b; case '%': return a % b;
+          case '<': return a < b ? 1 : 0; case '>': return a > b ? 1 : 0;
+          case '<=': return a <= b ? 1 : 0; case '>=': return a >= b ? 1 : 0;
+          case '==': return a === b ? 1 : 0; case '!=': return a !== b ? 1 : 0;
+        }
+        return NaN;
+      }
+      case 'id': {
+        const nm = n.name;
+        if (nm === 'this') return ctx.thisV === undefined ? 0 : ctx.thisV;
+        if (QUERY[nm]) {
+          /* 严格模式：只有我们真给得出值的 query 才认，其余按未知处理（最终值面板用） */
+          if (ctx.strictQuery && !ctx.strictQuery[nm]) { miss(ctx, nm); return 0; }
+          return QUERY[nm](ctx);
+        }
+        if (nm === 'math.pi') return Math.PI;
+        if (nm.indexOf('variable.') === 0) { const k = nm.slice(9); return k in ctx.vars ? ctx.vars[k] : (miss(ctx, nm), 0); }
+        if (nm.indexOf('temp.') === 0) { const k = nm.slice(5); return k in ctx.vars ? ctx.vars[k] : 0; }
+        if (nm.indexOf('context.') === 0) { const k = nm.slice(8); return k in ctx.vars ? ctx.vars[k] : 0; }
+        miss(ctx, nm);
+        return 0;
+      }
+      case 'call': {
+        const f = FN[n.name];
+        if (!f) return NaN;
+        const args = n.args.map(a => evalNode(a, ctx));
+        try { return f(args); } catch (e) { return NaN; }
+      }
+    }
+    return NaN;
+  }
+  function evalMolang(src, ctx) {
+    if (typeof src === 'number') return src;
+    const v = evalNode(compile(String(src))(), ctx);
+    return isFinite(v) ? v : NaN;
+  }
+  return { evalMolang, compile, evalAst: evalNode, FN };
+})();
+
+/* ---------------- 通道与关键帧 ---------------- */
+const BASES = {
+  position: { base: 0, label: 'position', unit: 'blocks' },
+  rotation: { base: 0, label: 'rotation', unit: '°' },
+  scale: { base: 1, label: 'scale', unit: '×' }
+};
+const BASE_ORDER = ['position', 'rotation', 'scale'];
+const CHAN_RE = /^(position|rotation|scale)(?:[_-](.+))?$/;
+
+const isArr3 = v => Array.isArray(v) && v.length >= 1;
+const toVec3 = (v) => Array.isArray(v) ? [v[0], v[1] != null ? v[1] : v[0], v[2] != null ? v[2] : v[0]] : [v, v, v];
+
+function parseKeys(raw) {
+  if (raw == null) return null;
+  const scan = v => {
+    if (typeof v === 'string') return /\bthis\b/.test(v);
+    return false;
+  };
+  if (Array.isArray(raw) || typeof raw === 'number' || typeof raw === 'string') {
+    const vec = toVec3(raw);
+    return { kind: 'static', value: vec, thisRef: vec.some(scan) };
+  }
+  if (typeof raw !== 'object') return null;
+  const keys = [];
+  let jump = false, catmull = false, molang = false, thisRef = false;
+  Object.keys(raw).forEach(k => {
+    const t = parseFloat(k);
+    if (!isFinite(t)) return;
+    const rv = raw[k];
+    let pre, post, mode = 'linear';
+    if (rv && typeof rv === 'object' && !Array.isArray(rv)) {
+      mode = rv.lerp_mode || 'linear';
+      const a = rv.pre != null ? rv.pre : rv.post;
+      const b = rv.post != null ? rv.post : rv.pre;
+      pre = toVec3(a); post = toVec3(b);
+      if (rv.pre != null && rv.post != null && JSON.stringify(pre) !== JSON.stringify(post)) jump = true;
+    } else {
+      pre = post = toVec3(rv);
+    }
+    if (mode === 'catmullrom') catmull = true;
+    for (const v of pre.concat(post)) {
+      if (typeof v === 'string') { molang = true; if (scan(v)) thisRef = true; }
+    }
+    keys.push({ t, pre, post, mode });
+  });
+  keys.sort((a, b) => a.t - b.t);
+  return { kind: 'keyframed', keys, jump, catmull, molang, thisRef };
+}
+
+
+function makeChannel(bone, base, raw, rawKey, legacyKey) {
+  const pk = parseKeys(raw);
+  if (!pk) return null;
+  const ch = {
+    bone, base, rawKey: rawKey || base, legacyKey: !!legacyKey,
+    kind: pk.kind, value: pk.value || null, keys: pk.keys || null,
+    src: raw,
+    flags: {
+      molang: pk.kind === 'static'
+        ? pk.value.some(v => typeof v === 'string')
+        : !!pk.molang,
+      jump: !!pk.jump, catmull: !!pk.catmull,
+      thisRef: !!pk.thisRef
+    }
+  };
+  ch.times = pk.kind === 'keyframed' ? pk.keys.map(k => k.t) : [];
+  return ch;
+}
+
+/* 采样一个通道，返回 {v:[x,y,z], unresolved, miss[]}
+   thisArr = 该通道在「这张卡之前」的累计值，供表达式里的 this / -this 读取 */
+const containsMolang = v => typeof v === 'string' || (Array.isArray(v) && v.some(x => typeof x === 'string'));
+
+/* ---------------- 动画条目 ---------------- */
+/* 身份色：只用来区分「这是另一段动画」，不表示状态。
+   琥珀(--amber=override)、紫(--violet=this)、天蓝(--sky=molang) 是语义色，不能拿来当身份色，
+   否则一条普通的行会被读成「它 override 了」——所以这里只用这 4 个，多的统一给钢蓝。 */
+const STACK_COLORS = ['#5fd48b', '#f472b6', '#a3e635', '#2dd4bf', '#8b9dc3'];
+const SPECIAL_KEYS = ['loop', 'animation_length', 'start_delay', 'blend_weight', 'override_previous_animation',
+  'sound_effects', 'particle_effects', 'timeline', 'anim_time_update', 'bones_that_should_be_visible'];
+
+function parseEvents(def) {
+  const out = [];
+  ['sound_effects', 'particle_effects', 'timeline'].forEach(kindKey => {
+    const block = def[kindKey];
+    if (!block || typeof block !== 'object') return;
+    const kind = kindKey === 'sound_effects' ? 'sound' : kindKey === 'particle_effects' ? 'particle' : 'timeline';
+    Object.keys(block).forEach(k => {
+      const t = parseFloat(k);
+      if (!isFinite(t)) return;
+      let nm = block[k];
+      if (Array.isArray(nm)) nm = nm[0];
+      if (nm && typeof nm === 'object') nm = nm.effect || nm.sound || nm.name || JSON.stringify(nm);
+      out.push({ t, kind, name: String(nm) });
+    });
+  });
+  return out.sort((a, b) => a.t - b.t);
+}
+
+function makeItem(animKey, def, fileName, origin) {
+  const item = {
+    id: uid('it'), animKey: animKey, def: def, fileName: fileName || '', origin: origin || 'import',
+    channels: [], bones: [], boneSet: new Set(), events: [], warnings: [],
+    loop: def.loop === true ? true : def.loop === 'hold_on_last_frame' ? 'hold' : def.loop === false ? false : false,
+    length: typeof def.animation_length === 'number' ? def.animation_length : null,
+    startDelay: typeof def.start_delay === 'number' ? def.start_delay : 0,
+    blendWeight: typeof def.blend_weight === 'number' ? def.blend_weight : 1,
+    flags: {
+      override: def.override_previous_animation === true, hasThis: false,
+      hasMolang: false, hasJump: false, hasCatmull: false, hasEvents: false
+    },
+    enabled: true, weight: 1, color: STACK_COLORS[0], collapsed: false
+  };
+  let maxT = 0;
+  const bonesObj = def.bones && typeof def.bones === 'object' ? def.bones : {};
+  Object.keys(bonesObj).forEach(boneName => {
+    const block = bonesObj[boneName];
+    if (!block || typeof block !== 'object') return;
+    Object.keys(block).forEach(rawKey => {
+      const m = CHAN_RE.exec(rawKey);
+      if (!m) {
+        if (rawKey !== 'relative_to') item.warnings.push('忽略未知通道键 ' + rawKey);
+        return;
+      }
+      const base = m[1], legacy = m[2] || null;
+      const ch = makeChannel(boneName, base, block[rawKey], rawKey, legacy);
+      if (!ch) return;
+      item.channels.push(ch);
+      if (!item.boneSet.has(boneName)) { item.boneSet.add(boneName); item.bones.push(boneName); }
+      if (ch.flags.molang) item.flags.hasMolang = true;
+      if (ch.flags.jump) item.flags.hasJump = true;
+      if (ch.flags.catmull) item.flags.hasCatmull = true;
+      if (ch.flags.thisRef) item.flags.hasThis = true;
+      if (ch.times.length) maxT = Math.max(maxT, ch.times[ch.times.length - 1]);
+    });
+  });
+  item.events = parseEvents(def);
+  if (item.events.length) item.flags.hasEvents = true;
+  if (item.length == null) item.length = maxT || 1;
+  if (!item.channels.length) item.warnings.push('这个动画没有任何可识别的骨骼通道');
+  return item;
+}
+
+/* 解析文件 → 若干 item（bedrock-samples 一个文件通常装多个动画） */
+function parseAnimFile(json, fileName, origin) {
+  const out = [];
+  let map = null, wrapper = null;
+  if (json && typeof json === 'object') {
+    if (json.animations && typeof json.animations === 'object') { map = json.animations; wrapper = json; }
+    else if (json.bones) { map = { ['animation.unnamed']: json }; }
+  }
+  if (!map) throw new Error('没有找到 animations 节点');
+  Object.keys(map).forEach(key => {
+    const def = map[key];
+    if (!def || typeof def !== 'object') return;
+    if (key === 'loop' || key === 'animation_length') return;
+    const it = makeItem(key, def, fileName, origin);
+    if (it.channels.length) out.push(it);
+  });
+  if (!out.length) throw new Error('animations 里没有可用的骨骼通道');
+  return out;
+}
+
+/* ---------------- 示例库（逐字取自 bedrock-samples v1.26.50.4 的 resource_pack/animations） ---------------- */
+const SAMPLE_GROUPS = [
+  {
+    id: 'core',
+    title: 'bedrock-samples 原生',
+    note: 'bedrock-samples v1.26.50.4 原文件，逐字未改。',
+    keys: [
+      'animation.humanoid.move', 'animation.humanoid.bob', 'animation.humanoid.sneaking',
+      'animation.armor_stand.athena_pose', 'animation.player.sleeping'
+    ]
+  },
+  {
+    id: 'fmbe',
+    title: 'FMBE 基础',
+    note: 'wiki.bedrock.dev/commands/display-entities 的原版动画，顺序 = 该页 render.mcfunction 里 /playanimation 的先后。',
+    keys: [
+      'animation.player.sleeping', 'animation.creeper.swelling', 'animation.ender_dragon.neck_head_movement',
+      'animation.warden.move', 'animation.player.attack.rotations',
+      'animation.parrot.moving', 'animation.minecart.move', 'animation.parrot.dance'
+    ]
+  },
+  {
+    id: 'adv',
+    title: 'FMBE 进阶 · 3D 方块',
+    note: 'Advanced FMBE（3D 方块）用到的原版动画 —— 与上面是同一批文件，没有额外的 JSON。',
+    keys: [
+      'animation.player.sleeping', 'animation.creeper.swelling', 'animation.ender_dragon.neck_head_movement',
+      'animation.warden.move', 'animation.player.attack.rotations'
+    ]
+  }
+];
+
+const SAMPLES = [
+  { key: "animation.humanoid.move", group: "core", label: "humanoid.move", note: "", file: "humanoid.animation.json", on: true,
+    def: {"loop":true,"animation_length":1,"bones":{"leftarm":{"rotation":["variable.tcos0",0,0]},"leftleg":{"rotation":["variable.tcos0 * -1.4",-0.1,-0.1]},"rightarm":{"rotation":["-variable.tcos0",0,0]},"rightleg":{"rotation":["variable.tcos0 * 1.4",0.1,0.1]}}} },
+  { key: "animation.humanoid.bob", group: "core", label: "humanoid.bob", note: "", file: "humanoid.animation.json", on: true,
+    def: {"loop":true,"animation_length":0.5,"bones":{"leftarm":{"rotation":[0,0,"((math.cos(query.life_time * 103.2) * 2.865) + 2.865) *-1.0"]},"rightarm":{"rotation":[0,0,"(math.cos(query.life_time * 103.2) * 2.865) + 2.865"]}}} },
+  { key: "animation.humanoid.sneaking", group: "core", label: "humanoid.sneaking", note: "", file: "humanoid.animation.json", on: true,
+    def: {"loop":true,"bones":{"body":{"rotation":["0.5 - this",0,0]},"head":{"position":[0,1,0]},"leftarm":{"rotation":[72,0,0]},"leftleg":{"position":[0,-3.1,3.9]},"rightarm":{"rotation":[72,0,0]},"rightleg":{"position":[0,-2.9,4.1]}}} },
+  { key: "animation.armor_stand.athena_pose", group: "core", label: "armor_stand.athena_pose", note: "", file: "armor_stand.animation.json", on: true,
+    def: {"loop":true,"bones":{"body":{"rotation":["-this","-this","-this + 2"]},"head":{"rotation":["-this - 5","-this","-this"]},"leftarm":{"rotation":["-this + 10","-this","-this - 5"]},"leftleg":{"rotation":["-this - 3","-this - 3","-this - 3"]},"rightarm":{"rotation":["-this - 60","-this + 20","-this - 10"]},"rightitem":{"rotation":["-this","-this","-this"]},"rightleg":{"rotation":["-this - 3","-this - 3","-this - 3"]}}} },
+  { key: "animation.player.sleeping", group: "core", label: "player.sleeping", note: "", file: "player.animation.json", on: true,
+    def: {"loop":true,"override_previous_animation":true,"bones":{"head":{"rotation":["30.0 - this","-this","-this"]},"root":{"position":["24.0 * math.cos(query.body_y_rotation) * math.cos(query.sleep_rotation) - 24.0 * math.sin(query.body_y_rotation) * math.sin(query.sleep_rotation)",0,"24.0 * math.cos(query.body_y_rotation) * math.sin(query.sleep_rotation) + 24.0 * math.sin(query.body_y_rotation) * math.cos(query.sleep_rotation)"],"rotation":[-90,"270.0 - query.sleep_rotation - query.body_y_rotation",0]}}} },
+  { key: "animation.creeper.swelling", group: "fmbe", label: "creeper.swelling", note: "", file: "creeper.animation.json", on: false,
+    def: {"loop":true,"bones":{"body":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"head":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"leg0":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"leg1":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"leg2":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]},"leg3":{"scale":["variable.swelling_scale1","variable.swelling_scale2","variable.swelling_scale1"]}}} },
+  { key: "animation.ender_dragon.neck_head_movement", group: "fmbe", label: "dragon.neck_head_movement", note: "", file: "ender_dragon.animation.json", on: false,
+    def: {"loop":true,"bones":{"neck1":{"rotation":["variable.neck_1_rotation_x - this","variable.neck_1_rotation_y - this","variable.neck_1_rotation_z - this"],"position":["variable.neck_1_position_x - this","variable.neck_1_position_y - this","variable.neck_1_position_z - this"]},"neck2":{"rotation":["variable.neck_2_rotation_x - this","variable.neck_2_rotation_y - this","variable.neck_2_rotation_z - this"],"position":["variable.neck_2_position_x - this","variable.neck_2_position_y - this","variable.neck_2_position_z - this"]},"neck3":{"rotation":["variable.neck_3_rotation_x - this","variable.neck_3_rotation_y - this","variable.neck_3_rotation_z - this"],"position":["variable.neck_3_position_x - this","variable.neck_3_position_y - this","variable.neck_3_position_z - this"]},"neck4":{"rotation":["variable.neck_4_rotation_x - this","variable.neck_4_rotation_y - this","variable.neck_4_rotation_z - this"],"position":["variable.neck_4_position_x - this","variable.neck_4_position_y - this","variable.neck_4_position_z - this"]},"neck5":{"rotation":["variable.neck_5_rotation_x - this","variable.neck_5_rotation_y - this","variable.neck_5_rotation_z - this"],"position":["variable.neck_5_position_x - this","variable.neck_5_position_y - this","variable.neck_5_position_z - this"]},"head":{"rotation":["variable.head_rotation_x - this","variable.head_rotation_y - this","variable.head_rotation_z - this"],"position":["variable.head_position_x - this","variable.head_position_y - this","variable.head_position_z - this"]}}} },
+  { key: "animation.warden.move", group: "fmbe", label: "warden.move", note: "", file: "warden.animation.json", on: false,
+    def: {"loop":true,"bones":{"head":{"rotation":["variable.head_x_rot",0,"variable.head_z_rot"]},"body":{"rotation":["variable.body_x_rot",0,"variable.body_z_rot"]},"left_leg":{"rotation":["variable.left_leg_x_rot",0,0]},"right_leg":{"rotation":["variable.right_leg_x_rot",0,0]},"left_arm":{"rotation":["variable.left_arm_x_rot",0,0]},"right_arm":{"rotation":["variable.right_arm_x_rot",0,0]}}} },
+  { key: "animation.player.attack.rotations", group: "fmbe", label: "player.attack.rotations", note: "", file: "player.animation.json", on: false,
+    def: {"loop":true,"bones":{"body":{"rotation":[0,"variable.attack_body_rot_y",0]},"leftarm":{"rotation":["-(math.sin((1 - math.pow((1 - variable.attack_time), 4)) * 180) * 1.2 + math.sin(variable.attack_time * 180)) * 10.0",0,0]},"rightarm":{"rotation":["-(math.sin((1 - math.pow((1 - variable.attack_time), 4)) * 180) * 1.2 + math.sin(variable.attack_time * 180)) * 30.0","-(math.sin((1 - math.pow((1 - variable.attack_time), 4)) * 180) ? (-90.0 * math.sin((1 - math.pow((1 - variable.attack_time), 4)) * 180)) + 30.0 : 0.0)",0]}}} },
+  { key: "animation.parrot.moving", group: "fmbe", label: "parrot.moving", note: "", file: "parrot.animation.json", on: false,
+    def: {"loop":true,"bones":{"body":{"position":[0,"variable.wing_flap * 0.3",0]},"tail":{"rotation":["60.0 + math.cos(query.anim_time * 38.17) * 17.0 - this",0,0]},"wing0":{"rotation":[0,0,"-5.0 - variable.wing_flap * 57.3"]},"wing1":{"rotation":[0,0,"5.0 + variable.wing_flap * 57.3"]}}} },
+  { key: "animation.parrot.dance", group: "fmbe", label: "parrot.dance", note: "", file: "parrot.animation.json", on: false,
+    def: {"loop":true,"bones":{"body":{"position":["variable.dance.x-this","variable.dance.y",0]},"head":{"rotation":["-this","-this","variable.dance.y*23.0 - this"]},"leg0":{"position":["-variable.dance.x","-variable.dance.y",0],"rotation":[0,0,"-20.0 - this"]},"leg1":{"position":["-variable.dance.x","-variable.dance.y",0],"rotation":[0,0,"20.0 - this"]},"tail":{"rotation":["60.0 - this",0,0]},"wing0":{"rotation":[0,0,"-5.0 - variable.wing_flap"]},"wing1":{"rotation":[0,0,"5.0 + variable.wing_flap"]}}} },
+  { key: "animation.minecart.move", group: "fmbe", label: "minecart.move", note: "", file: "minecart.animation.json", on: false,
+    def: {"loop":true,"bones":{"bottom":{"position":["variable.rail_offset.x / query.model_scale","variable.rail_offset.y / query.model_scale","variable.rail_offset.z / query.model_scale"],"rotation":["variable.hurt > 0 ? -Math.sin(variable.hurt * 360 / (Math.pi * 2)) * variable.hurt * (((20 * 2 - query.structural_integrity) - query.frame_alpha) < 0 ? 0: (20 * 2 - query.structural_integrity) - query.frame_alpha) / 10 * query.hurt_direction : 0",0,"-variable.rail_rotation.z"]}}} }
+];
+
+/* ============================================================
+   P3 · 状态 / 矩阵渲染 / 拖拽
+   ============================================================ */
+const state = {
+  stack: [], sel: null,
+  vars: {},                  // 用户给 variable.* / query.* 设的值（Blockbench 那种变量占位符），键是完整名
+  hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
+  openCells: new Set(),      // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
+  colCollapsed: false,       // 左边动画名列是否收窄成一小条
+  sumHidden: false           // 底部「最终值」行是否收起
+};
+
+/* ---------- 撤销 / 重做 ----------
+   快照式：只记「栈里有哪些 item（引用）、各自启停、隐藏了哪些骨骼」。
+   item 对象本身在快照之间共享，所以换序 / 增删都是 O(n) 的引用操作，不复制 def。
+   玩法上等价于撤销「顺序、启停、增删、隐藏列」，不改动画内容本身。 */
+const hist = { past: [], future: [] };
+const HIST_MAX = 80;
+
+function histSnap() {
+  return {
+    stack: state.stack.map(i => ({ it: i, on: i.enabled })),
+    hidden: state.hiddenBones.slice()
+  };
+}
+function histPush(label) {
+  hist.past.push({ label, snap: histSnap() });
+  if (hist.past.length > HIST_MAX) hist.past.shift();
+  hist.future.length = 0;
+  syncHistUI();
+}
+function histApply(s) {
+  state.stack = s.stack.map(x => { x.it.enabled = x.on; return x.it; });
+  state.hiddenBones = s.hidden.slice();
+  assignColors();
+  renderFlip(); save();
+  libSyncRows();
+}
+function syncHistUI() {
+  const u = $('#btnUndo'), r = $('#btnRedo');
+  if (u) {
+    u.disabled = !hist.past.length;
+    u.title = hist.past.length ? '撤销 Ctrl+Z · ' + hist.past[hist.past.length - 1].label : '没有可撤销的操作';
+  }
+  if (r) {
+    r.disabled = !hist.future.length;
+    r.title = hist.future.length ? '重做 Ctrl+Y · ' + hist.future[hist.future.length - 1].label : '没有可重做的操作';
+  }
+}
+function undo() {
+  if (!hist.past.length) { toast('没有可撤销的操作'); return; }
+  const cur = histSnap();
+  const e = hist.past.pop();
+  hist.future.push({ label: e.label, snap: cur });
+  histApply(e.snap);
+  syncHistUI();
+  toast('已撤销：' + escapeHtml(e.label), 'good');
+}
+function redo() {
+  if (!hist.future.length) { toast('没有可重做的操作'); return; }
+  const cur = histSnap();
+  const e = hist.future.pop();
+  hist.past.push({ label: e.label, snap: cur });
+  histApply(e.snap);
+  syncHistUI();
+  toast('已重做：' + escapeHtml(e.label), 'good');
+}
+function initHistory() {
+  const u = $('#btnUndo'), r = $('#btnRedo');
+  if (u) u.addEventListener('click', undo);
+  if (r) r.addEventListener('click', redo);
+  document.addEventListener('keydown', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const t = e.target;
+    /* 输入框里让浏览器自己撤销，别抢 */
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const k = (e.key || '').toLowerCase();
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+    else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
+  });
+  syncHistUI();
+}
+
+
+/* 循环 / 保持 / 单次 → 动画内本地时间；还没到 start_delay 返回 null */
+
+
+/* ---------- 最终通道值：按当前顺序叠加，符号原样带着 ----------
+   规则和引擎一致：上面的行先算 → this 读到的是上面累计 → override 先把自己碰到的骨骼清零。
+   和「代入数字」不同：式子里的 variable.* / query.* 不强行算成 0，而是一路带下来，顺便化简、抵消
+   （this + (-this) 直接没了）。关键帧那种随时间变的量记作 t。 */
+const AX_NAMES = ['x', 'y', 'z'];
+const TV_NODE = { k: 'tv' };                 // 「随时间变化」的占位符，抵消时靠同一个引用比对
+const astNum = v => ({ k: 'num', v });
+const astBin = (op, a, b) => ({ k: 'bin', op, a, b });
+const astNeg = a => ({ k: 'neg', a });
+
+function astFrom(v) {
+  if (typeof v === 'number') return astNum(v);
+  if (typeof v !== 'string') { const n = Number(v); return astNum(isFinite(n) ? n : 0); }
+  return Molang.compile(v)();
+}
+
+function astSub(n, rep) {
+  switch (n.k) {
+    case 'num': case 'tv': return n;
+    case 'id': return n.name === 'this' ? rep : n;
+    case 'neg': case 'not': return { k: n.k, a: astSub(n.a, rep) };
+    case 'bin': return { k: 'bin', op: n.op, a: astSub(n.a, rep), b: astSub(n.b, rep) };
+    case 'call': return { k: 'call', name: n.name, args: n.args.map(a => astSub(a, rep)) };
+  }
+  return n;
+}
+
+function astIsConst(n) {
+  switch (n.k) {
+    case 'num': return true;
+    case 'tv': return false;
+    case 'id': return n.name === 'math.pi';
+    case 'neg': case 'not': return astIsConst(n.a);
+    case 'bin': return astIsConst(n.a) && astIsConst(n.b);
+    case 'call': return n.name !== 'math.random' && !!Molang.FN[n.name] && n.args.every(astIsConst);
+  }
+  return false;
+}
+
+function astFold(n) {
+  switch (n.k) {
+    case 'num': case 'tv': case 'id': return n;
+    case 'neg': {
+      const a = astFold(n.a);
+      return a.k === 'num' ? astNum(-a.v) : astNeg(a);
+    }
+    case 'not': {
+      const a = astFold(n.a);
+      return a.k === 'num' ? astNum(a.v ? 0 : 1) : { k: 'not', a };
+    }
+    case 'bin': {
+      const node = { k: 'bin', op: n.op, a: astFold(n.a), b: astFold(n.b) };
+      return astIsConst(node) ? astNum(Molang.evalAst(node, { vars: {} })) : node;
+    }
+    case 'call': {
+      const node = { k: 'call', name: n.name, args: n.args.map(astFold) };
+      return astIsConst(node) ? astNum(Molang.evalAst(node, { vars: {} })) : node;
+    }
+  }
+  return n;
+}
+
+const sameAst = (a, b) => a === b || (a.k === b.k && JSON.stringify(a) === JSON.stringify(b));
+
+function flatSum(n, sign, out) {
+  if (n.k === 'bin' && (n.op === '+' || n.op === '-')) {
+    flatSum(n.a, sign, out);
+    flatSum(n.b, n.op === '+' ? sign : -sign, out);
+  } else if (n.k === 'neg') {
+    flatSum(n.a, -sign, out);
+  } else {
+    out.push({ s: sign, n });
+  }
+}
+
+/* prev + row；顺手把「同一个式子一正一负」的两项消掉（-this 就是整个抵消上一项） */
+function astSum(prev, row) {
+  const terms = [];
+  flatSum(prev, 1, terms);
+  flatSum(row, 1, terms);
+  let num = 0, numAt = -1;
+  const rest = [];
+  terms.forEach(t => {
+    if (t.n.k === 'num') {
+      if (numAt < 0) numAt = rest.length;
+      num += t.s * t.n.v;
+    } else rest.push(t);
+  });
+  for (let i = 0; i < rest.length; i++) {
+    if (!rest[i]) continue;
+    for (let j = i + 1; j < rest.length; j++) {
+      if (rest[j] && rest[i].s === -rest[j].s && sameAst(rest[i].n, rest[j].n)) { rest[i] = null; rest[j] = null; break; }
+    }
+  }
+  const list = rest.filter(Boolean);
+  if (num !== 0 || !list.length) {
+    const at = numAt < 0 ? list.length : Math.min(numAt, list.length);
+    list.splice(at, 0, { s: num > 0 ? 1 : -1, n: astNum(Math.abs(num)) });
+  }
+  if (!list.length) return astNum(0);
+  let node = null;
+  list.forEach(t => {
+    if (!node) node = t.s > 0 ? t.n : astNeg(t.n);
+    else node = t.s > 0 ? astBin('+', node, t.n) : astBin('-', node, t.n);
+  });
+  return astFold(node);
+}
+
+const APREC = { '||': 1, '&&': 2, '==': 3, '!=': 3, '<': 4, '>': 4, '<=': 4, '>=': 4, '+': 5, '-': 5, '*': 6, '/': 6, '%': 6 };
+function numText(v) {
+  if (!isFinite(v)) return '?';
+  if (Number.isInteger(v)) return String(v);
+  return String(+v.toFixed(4));
+}
+function astPrint(n, min) {
+  min = min || 0;
+  const wrap = (s, p) => (p < min ? '(' + s + ')' : s);
+  switch (n.k) {
+    case 'num': return numText(n.v);
+    case 'tv': return 't';
+    case 'id': return n.name;
+    case 'neg': return wrap('-' + astPrint(n.a, 7), 7);
+    case 'not': return wrap('!' + astPrint(n.a, 7), 7);
+    case 'call': return n.name + '(' + n.args.map(a => astPrint(a, 0)).join(', ') + ')';
+    case 'bin': {
+      const p = APREC[n.op] || 5;
+      return wrap(astPrint(n.a, p) + ' ' + n.op + ' ' + astPrint(n.b, p + 1), p);
+    }
+  }
+  return '?';
+}
+function astText(n, base) {
+  if (n.k === 'num') return isFinite(n.v) ? fmtV(n.v, base) : '?';
+  return astPrint(n);
+}
+
+/* 某条轴上有没有读 this —— 有才需要把上一轮的式子代进去 */
+function exprUsesThis(ch, ax) {
+  const has = v => typeof v === 'string' && /\bthis\b/.test(v);
+  if (ch.kind === 'static') return has(ch.value[ax]);
+  return ch.keys.some(k => has(k.post[ax]) || has(k.pre[ax]));
+}
+
+/* ---------- 变量取值：把 variable.* / query.* 换成数字（类似 Blockbench 的变量占位符） ---------- */
+const VAR_RE = /\b((?:variable|query|temp|context)\.[A-Za-z_][\w.]*)/g;
+
+function chanStrings(ch) {
+  const out = [];
+  const push = v => { if (typeof v === 'string') out.push(v); };
+  if (ch.kind === 'static') (ch.value || []).forEach(push);
+  else (ch.keys || []).forEach(k => {
+    (k.pre || []).forEach(push);
+    (k.post || []).forEach(push);
+  });
+  return out;
+}
+
+/* 当前栈里出现过哪些 variable / query。
+   含停用行：停用了也允许先给它设值，否则一停用就从弹窗里消失、值再也改不了。 */
+function collectVarNames() {
+  const seen = new Set();
+  state.stack.forEach(it => {
+    it.channels.forEach(ch => {
+      chanStrings(ch).forEach(str => {
+        VAR_RE.lastIndex = 0;
+        let m;
+        while ((m = VAR_RE.exec(str))) seen.add(m[1]);
+      });
+    });
+  });
+  return Array.from(seen).sort();
+}
+
+function hasVars() { return Object.keys(state.vars).length > 0; }
+
+/* 真正被当前栈用到、并且已经设了值的数量（用来决定最终值要不要代数字） */
+function usedVarCount() {
+  if (!hasVars()) return 0;
+  const names = collectVarNames();
+  return Object.keys(state.vars).filter(k => names.indexOf(k) >= 0).length;
+}
+
+/* 把已知的变量节点替换成常量节点 */
+function astApplyVars(n) {
+  if (!n) return n;
+  switch (n.k) {
+    case 'id': {
+      const v = state.vars[n.name];
+      return v == null ? n : { k: 'num', v: v };
+    }
+    case 'neg': return { k: 'neg', a: astApplyVars(n.a) };
+    case 'not': return { k: 'not', a: astApplyVars(n.a) };
+    case 'bin': return { k: 'bin', op: n.op, a: astApplyVars(n.a), b: astApplyVars(n.b) };
+    case 'call': return { k: 'call', name: n.name, args: n.args.map(astApplyVars) };
+  }
+  return n;
+}
+
+/* 全部已知 → 返回数字；还有未知符号（或随时间变化）→ null */
+function astNumeric(n) {
+  const m = astApplyVars(n);
+  if (!astIsConst(m)) return null;
+  const v = Molang.evalAst(m, { vars: {} });
+  return isFinite(v) ? v : null;
+}
+
+function computeFinal() {
+  const ident = base => (base === 'scale' ? 1 : 0);
+  const out = new Map();                      // "bone|base" -> { e:[AST,AST,AST], by }
+  state.stack.forEach((it, si) => {
+    if (!it.enabled) return;
+    if (it.flags.override) {
+      it.bones.forEach(b => CH_ORDER.forEach(base => {
+        const v = ident(base);
+        out.set(b + '|' + base, { e: [astNum(v), astNum(v), astNum(v)], by: si });
+      }));
+    }
+    const w = it.blendWeight == null ? 1 : it.blendWeight;
+    it.channels.forEach(ch => {
+      const key = ch.bone + '|' + ch.base;
+      const zero = ident(ch.base);
+      const prev = out.get(key) || { e: [astNum(zero), astNum(zero), astNum(zero)], by: -1 };
+      if (ch.kind === 'keyframed') {
+        /* 关键帧没有单一值，累积结果就是一个随时间变的量 */
+        out.set(key, { e: [TV_NODE, TV_NODE, TV_NODE], by: si });
+        return;
+      }
+      const e = [0, 1, 2].map(i => {
+        let row = astFrom(ch.value[i]);
+        if (exprUsesThis(ch, i)) row = astSub(row, prev.e[i]);
+        if (w !== 1) {
+          row = ch.base === 'scale'
+            ? astBin('+', astNum(1), astBin('*', astBin('-', row, astNum(1)), astNum(w)))
+            : astBin('*', row, astNum(w));
+        }
+        return astSum(prev.e[i], astFold(row));
+      });
+      out.set(key, { e, by: si });
+    });
+  });
+  return out;
+}
+
+function xbtnHTML(key, open) {
+  return '<button class="xbtn" data-exp="' + escapeHtml(key) + '" aria-expanded="' + (open ? 'true' : 'false') + '"'
+    + ' title="' + (open ? '收起' : '展开完整值') + '">' + (open ? '收起' : '展开') + ic(open ? 'chevronUp' : 'chevronDown') + '</button>';
+}
+
+function sumCellHTML(col, fin, vaCount) {
+  const f = fin.get(col.bone + '|' + col.base);
+  if (!f) return '<td class="none" title="没有启用的行写这个通道">—</td>';
+  const key = 'sum|' + col.bone + '|' + col.base;
+  const open = state.openCells.has(key);
+  const sym = AX_NAMES.map((ax, i) => astText(f.e[i], col.base));
+  const nums = vaCount ? f.e.map(astNumeric) : f.e.map(() => null);
+  const texts = AX_NAMES.map((ax, i) => (nums[i] == null ? sym[i] : fmtNum(nums[i], col.base)));
+  /* 折叠与否看「实际显示的文字」：代入了变量之后可能只剩一个短数字，就不该再给「展开」 */
+  const long = texts.some(t => t.length > LONG_EXPR);
+  const clipped = long && !open;
+  const lines = AX_NAMES.map((ax, i) =>
+    '<span><i>' + ax + '</i><span class="sumv' + (nums[i] != null || f.e[i].k === 'num' ? ' isnum' : '') + '">'
+    + escapeHtml(texts[i]) + '</span></span>').join('');
+  const title = '最后写入：第 ' + (f.by + 1) + ' 行｜'
+    + (nums.some(v => v != null) ? '已代入变量；符号式 ' + sym.map((t, i) => AX_NAMES[i] + ' ' + t).join(' / ') : 'variable / query 原样带入，t = 随时间变化');
+  return '<td class="cell sum' + (clipped ? ' clip' : '') + '" title="' + escapeHtml(title) + '">'
+    + '<div class="vec">' + lines + '</div>' + (long ? xbtnHTML(key, open) : '') + '</td>';
+}
+
+function sumRowHTML(cols, fin) {
+  const va = usedVarCount();
+  return '<tr class="sumrow">'
+    + '<th class="sumh" scope="row" title="按当前顺序叠加：this 读上面的累计，override 先清零；设了值的 variable / query 会代入数字，其余原样留在式子里，t 表示随时间变化">'
+    + '<button class="sumtoggle" data-sumtoggle type="button" title="收起这一行">'
+    + '<b>最终值</b>' + (va ? '<span class="sum-var">已代入 ' + va + ' 个</span>' : '')
+    + '<span class="sumfold">' + ic('chevronsDown') + '</span></button>'
+    + '</th>'
+    + cols.map(c => sumCellHTML(c, fin, va)).join('')
+    + '</tr>';
+}
+
+/* ---------- 矩阵：行 = 动画，列 = 骨骼 / 通道 ---------- */
+const CH_ORDER = ['position', 'rotation', 'scale'];
+const BONE_RANK = ['root', 'body', 'head', 'hat', 'cape', 'back',
+  'leftarm', 'rightarm', 'leftleg', 'rightleg', 'leftitem', 'rightitem',
+  'rightitem', 'leftitem'];
+
+function boneRank(bone) {
+  const i = BONE_RANK.indexOf(String(bone).toLowerCase());
+  return i < 0 ? 99 : i;
+}
+
+/* 「- this」把这一轴写成绝对值：系数正好 -1、且没被 * / 除缩放，才算真的抵消了上面的累积。
+   反例：this * 0.5、2 * -this 都还依赖累计值，不能算覆盖。 */
+const CANCEL_THIS = /(^|[^*/])-this(?!\*|\/)/;
+function axisCancels(ch, ax) {
+  /* 先压掉空白再判，才能看住 2 * -this 这种被乘过的写法 */
+  const test = v => typeof v === 'string' && CANCEL_THIS.test(v.replace(/\s+/g, ''));
+  if (ch.kind === 'static') return test(ch.value[ax]);
+  return ch.keys.length > 0 && ch.keys.every(k => test(k.post[ax]));
+}
+
+/* 多长算「长」：单轴超过 44 字符（一列放不下、要折两行以上），或关键帧多于 4 个。
+   长的默认收成一行 / 前 3 帧，格子里给「展开」。 */
+const LONG_EXPR = 44;
+function isLongChannel(ch) {
+  if (!ch) return false;
+  if (ch.kind === 'static') return ch.value.some(v => typeof v === 'string' && v.length > LONG_EXPR);
+  return ch.keys.length > 4;
+}
+
+function buildMatrix() {
+  /* ov = 这一段动画是否带 override（身份，停用也还是 override 动画）
+     ovOn = 它此刻是否真的在生效（停用的行不参与判定，见 §10） */
+  const rows = state.stack.map((item, si) => {
+    const ov = !!item.flags.override;
+    return { item, si, ov, ovOn: ov && item.enabled };
+  });
+  const boneOrder = [];
+  const perBone = new Map();              // bone -> Set(base)
+  rows.forEach(r => r.item.channels.forEach(ch => {
+    if (!perBone.has(ch.bone)) { perBone.set(ch.bone, new Set()); boneOrder.push(ch.bone); }
+    perBone.get(ch.bone).add(ch.base);
+  }));
+  boneOrder.sort((a, b) => boneRank(a) - boneRank(b) || String(a).localeCompare(String(b)));
+  const allBones = boneOrder.slice();
+  /* 隐藏骨骼只影响「显示哪几列」：下面 allBones 用来渲染恢复栏，rows/cells 的判定完全不看它 */
+  const shown = boneOrder.filter(b => state.hiddenBones.indexOf(b) < 0);
+  const groups = shown.map(bone => {
+    const bases = CH_ORDER.filter(b => perBone.get(bone).has(b));
+    return { bone, bases };
+  });
+  const cols = [];
+  groups.forEach(g => g.bases.forEach(base => cols.push({ bone: g.bone, base })));
+
+  /* 每条轴最近一次被「- this」写成绝对值的那一行：它上面的行，这一轴的累积不再计入 */
+  const shadow = new Map();               // "bone|base|ax" -> si（最后一条生效的抵消行）
+  rows.forEach(r => {
+    if (!r.item.enabled) return;          // 停用的行不参与判定
+    r.item.channels.forEach(ch => {
+      for (let ax = 0; ax < 3; ax++) {
+        if (axisCancels(ch, ax)) shadow.set(ch.bone + '|' + ch.base + '|' + ax, r.si);
+      }
+    });
+  });
+
+  return { rows, groups, cols, bounds: rows.filter(r => r.ovOn), allBones, shadow };
+}
+
+/* 这一格是否被下面某个 override 行清掉 */
+function deadRowAt(bone, si, bounds) {
+  const hit = bounds.find(b => b.si > si && b.item.bones.indexOf(bone) >= 0);
+  return hit ? hit.si : -1;
+}
+function deadAt(bone, si, bounds) {
+  return deadRowAt(bone, si, bounds) >= 0;
+}
+
+function fmtNum(n, base) {
+  if (!isFinite(n)) return '?';
+  const digits = base === 'rotation' ? 2 : 3;
+  let s = n.toFixed(digits);
+  if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+  if (s === '-0') s = '0';
+  return s;
+}
+
+function litHTML(v, base) {
+  if (typeof v === 'string') {
+    const th = /\bthis\b/.test(v);
+    return '<code class="expr' + (th ? ' th' : '') + '" title="' + escapeHtml(v) + '">' + escapeHtml(v) + '</code>';
+  }
+  const n = Number(v);
+  return '<span class="num">' + (isFinite(n) ? fmtNum(n, base) : '?') + '</span>';
+}
+
+/* 单条字面量代入变量后等于多少（没设变量、或还留着未知符号 → null） */
+function litValue(v) {
+  if (typeof v !== 'string' || !hasVars()) return null;
+  try {
+    const n = astNumeric(astFrom(v));
+    return n == null ? null : n;
+  } catch (e) { return null; }
+}
+
+function chanHTML(ch, base, cuts, clipped) {
+  cuts = cuts || [-1, -1, -1];
+  if (ch.kind === 'static') {
+    return '<div class="vec">' + ['x', 'y', 'z'].map((ax, i) => {
+      const at = cuts[i];
+      const cut = at != null && at >= 0;
+      const sub = litValue(ch.value[i]);
+      const tips = [];
+      if (cut) tips.push('第 ' + (at + 1) + ' 行把它写成了绝对值（- this），上面这些行在这一轴上的累积不再计入');
+      if (sub != null) tips.push('这条原文代入变量后 = ' + fmtNum(sub, base));
+      return '<span' + (cut ? ' class="cut"' : '') + (tips.length ? ' title="' + escapeHtml(tips.join(' · ')) + '"' : '') + '>'
+        + '<i>' + ax + '</i>' + litHTML(ch.value[i], base)
+        + (cut ? '<em class="cutmark" title="这一轴被下面的行用 - this 写成了绝对值，上面的累积不算了">⟂</em>' : '')
+        + '</span>';
+    }).join('') + '</div>';
+  }
+  /* 关键帧：默认只列前 3 帧（长的给「展开」），展开后全部列出 */
+  const line = k => {
+    const jump = JSON.stringify(k.pre) !== JSON.stringify(k.post);
+    return '<span' + (jump ? ' class="jump"' : '') + ' title="' + k.t.toFixed(3) + 's' + (jump ? ' · pre/post 跳变' : '') + '">'
+      + '<b>' + fmtNum(k.t, 'time') + '</b>'
+      + k.post.map(v => litHTML(v, base)).join('<u>,</u>')
+      + '</span>';
+  };
+  const cutAll = cuts[0] != null && cuts[0] >= 0;
+  const ks = clipped ? ch.keys.slice(0, 3) : ch.keys;
+  return '<div class="keys' + (cutAll ? ' dead-keys' : '') + '">' + ks.map(line).join('')
+    + (clipped ? '<span class="more">… 共 ' + ch.keys.length + ' 帧</span>' : '')
+    + '</div>';
+}
+
+function badgesFor(item) {
+  const out = [];
+  if (item.flags.override) {
+    const bs = item.bones.join(', ');
+    out.push('<span class="chip ov" title="override_previous_animation: true —— 这一行会把它碰到的骨骼（' + escapeHtml(bs)
+      + '）上面的累积清掉，从自己开始重新叠">' + ic('override') + 'override</span>');
+  }
+  const nThis = item.channels.filter(c => c.flags.thisRef).length;
+  if (nThis) out.push('<span class="chip th" title="值里引用了 this（= 上面所有行的累计），等于把该通道写成绝对值">' + ic('thisMark') + 'this ×' + nThis + '</span>');
+  const nMo = item.channels.filter(c => c.flags.molang).length;
+  if (nMo) out.push('<span class="chip mo" title="值是表达式，不是数字">' + ic('molang') + 'molang ×' + nMo + '</span>');
+  if (item.flags.hasJump) out.push('<span class="chip kf" title="pre / post 不等，这一点会跳变">' + ic('keyframe') + 'pre/post</span>');
+  if (item.flags.hasCatmull) out.push('<span class="chip kf" title="lerp_mode: catmullrom">' + ic('keyframe') + 'catmullrom</span>');
+  if (item.flags.hasEvents) out.push('<span class="chip fx" title="sound_effects / particle_effects">' + ic('fx') + 'fx ×' + item.events.length + '</span>');
+  if (item.warnings.length) out.push('<span class="chip bad" title="' + escapeHtml(item.warnings.join(' / ')) + '">' + ic('warn') + item.warnings.length + '</span>');
+  return out;
+}
+
+function rowHead(r, allBones) {
+  const it = r.item;
+  const loopIcon = it.loop === true ? ic('loop') : it.loop === 'hold' ? ic('hold') : ic('once');
+  const loopText = it.loop === true ? 'loop' : it.loop === 'hold' ? 'hold' : 'once';
+  const chips = badgesFor(it);
+  /* 这段动画碰了哪些骨骼 / 漏了哪些 —— 漏掉的在表里是斜纹 */
+  const all = allBones || [];
+  const touched = all.filter(b => it.boneSet.has(b));
+  const missing = all.filter(b => !it.boneSet.has(b));
+  const cover = all.length
+    ? '<span class="cover" title="涉及 ' + escapeHtml(touched.join(', ') || '（无）')
+      + (missing.length ? '｜未涉及 ' + escapeHtml(missing.join(', ')) : '｜覆盖全部骨骼') + '">'
+      + '骨骼 ' + touched.length + '/' + all.length + '</span>'
+    : '';
+  return '<th class="rowh' + (r.ov ? ' ov' : '') + (it.enabled ? '' : ' off') + '" scope="row"'
+    + ' data-id="' + it.id + '" data-si="' + r.si + '" tabindex="0"'
+    + ' aria-label="第 ' + (r.si + 1) + ' 行：' + escapeHtml(shortKey(it.animKey))
+    + (r.ovOn ? '。override：清掉 ' + escapeHtml(it.bones.join('、')) + ' 上面的累积' : '')
+    + '。拖动或按上下方向键调整顺序"'
+    + ' style="--c:' + (it.color || 'var(--border-2)') + '">'
+    + '<div class="rh-top">'
+    + '<span class="idx">' + String(r.si + 1).padStart(2, '0') + '</span>'
+    + '<span class="key" data-act="toggle" title="' + escapeHtml(it.animKey) + '">'
+    + escapeHtml(shortKey(it.animKey)).replace(/\./g, '.<wbr>') + '</span>'
+    + '<span class="acts">'
+    + '<button class="icon-btn" data-act="toggle" aria-pressed="' + it.enabled + '" aria-label="' + (it.enabled ? '停用' : '启用') + ' ' + escapeHtml(shortKey(it.animKey)) + '" title="启用 / 停用">' + (it.enabled ? ic('eye') : ic('eyeOff')) + '</button>'
+    + '<button class="icon-btn danger" data-act="del" aria-label="移除 ' + escapeHtml(shortKey(it.animKey)) + '" title="移除这一行">' + ic('trash') + '</button>'
+    + '</span>'
+    + '</div>'
+    + '<div class="rh-meta">'
+    + '<span class="lchip" title="' + loopText + '">' + loopIcon + '</span>'
+    + '<span class="len">' + it.length.toFixed(2) + 's</span>'
+    + cover
+    + (chips.length ? '<span class="tags">' + chips.join('') + '</span>' : '')
+    + '</div>'
+    + '</th>';
+}
+
+/* 展开 / 收起单格的完整值；只用内存状态，不写 localStorage */
+function toggleCell(key) {
+  if (state.openCells.has(key)) state.openCells.delete(key);
+  else state.openCells.add(key);
+  render();
+  const btn = document.querySelector('[data-exp="' + String(key).replace(/["\\]/g, '\\$&') + '"]');
+  if (btn) btn.focus();
+}
+
+function cellHTML(row, col, bounds, shadow) {
+  const it = row.item;
+  const hit = it.channels.find(ch => ch.bone === col.bone && ch.base === col.base);
+  const deadRow = deadRowAt(col.bone, row.si, bounds);
+  const dead = deadRow >= 0;
+  const touched = it.boneSet.has(col.bone);
+  if (!hit) {
+    /* 两种「空」不是一回事：压根没这根骨骼（斜纹）/ 有骨骼但没写这个通道（·） */
+    if (!touched) {
+      return '<td class="none bnone" title="' + escapeHtml(shortKey(it.animKey)) + ' 不涉及 ' + escapeHtml(col.bone) + ' 骨骼"></td>';
+    }
+    return '<td class="none' + (dead ? ' dead' : '') + '" title="' + escapeHtml(shortKey(it.animKey))
+      + ' 有 ' + escapeHtml(col.bone) + ' 骨骼，但没写 ' + col.base + ' 通道">·</td>';
+  }
+  const cuts = [0, 1, 2].map(ax => {
+    const at = shadow.get(col.bone + '|' + col.base + '|' + ax);
+    return at != null && at > row.si ? at : -1;
+  });
+  const allCut = cuts.every(x => x >= 0);
+  const key = it.id + '|' + col.bone + '|' + col.base;
+  const long = isLongChannel(hit);
+  const open = long && state.openCells.has(key);
+  const clipped = long && !open;
+  const xbtn = long ? xbtnHTML(key, open) : '';
+  /* 三条轴都被后面的 -this 写成绝对值 → 按整格被覆盖来画（省掉三个 ⟂），和 override 的观感一致 */
+  const tip = dead
+    ? ' title="被第 ' + (deadRow + 1) + ' 行的 override_previous_animation 作废了（那一行会清掉 ' + col.bone + ' 的累积）"'
+    : allCut
+      ? ' title="第 ' + (cuts[0] + 1) + ' 行用 - this 把它写成了绝对值，这格上面的累积不算"'
+      : '';
+  return '<td class="cell' + (dead ? ' dead' : allCut ? ' cutall' : '') + (clipped ? ' clip' : '') + '"' + tip + '>'
+    + chanHTML(hit, col.base, allCut ? [-1, -1, -1] : cuts, clipped)
+    + xbtn + '</td>';
+}
+
+function boneLabel(bone) {
+  const ghost = /custom|extra_|unknown/i.test(bone);
+  return (ghost ? '<i class="ghost-dot" aria-label="未知骨骼"></i>' : '') + escapeHtml(bone);
+}
+
+function shortKey(k) {
+  return String(k || '').replace(/^animation\./, '');
+}
+
+/* ---------- 换序动画（FLIP） ----------
+   重建前先记下每行的位置，重建后让行从旧位置滑到新位置；只动 transform，不碰布局 */
+function snapRows() {
+  const map = new Map();
+  document.querySelectorAll('#matrix tbody th.rowh[data-id]').forEach(th => {
+    const tr = th.closest('tr');
+    /* 上一轮动画可能因为标签页切走没落干净，先归零再量，否则会从错误的位置起跳 */
+    if (tr.style.transform) { tr.style.transition = 'none'; tr.style.transform = ''; }
+    map.set(th.dataset.id, tr.getBoundingClientRect().top);
+  });
+  return map;
+}
+
+function playRows(snap) {
+  if (!snap || !snap.size) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('#matrix tbody th.rowh[data-id]').forEach(th => {
+    const tr = th.closest('tr');
+    const old = snap.get(th.dataset.id);
+    if (old == null) return;
+    const dy = Math.round(old - tr.getBoundingClientRect().top);
+    if (!dy) return;
+    tr.style.transition = 'none';
+    tr.style.transform = 'translateY(' + dy + 'px)';
+    let started = false;
+    const start = () => {
+      if (started) return;
+      started = true;
+      tr.style.transition = 'transform 220ms cubic-bezier(.2,.8,.2,1)';
+      tr.style.transform = 'translateY(0)';
+      const done = () => {
+        tr.style.transition = '';
+        tr.style.transform = '';
+        tr.removeEventListener('transitionend', done);
+      };
+      tr.addEventListener('transitionend', done);
+      setTimeout(done, 340);
+    };
+    requestAnimationFrame(start);
+    setTimeout(start, 90);                     // 标签页在后台时 rAF 会被挂起，兜底直接到位
+  });
+}
+
+/* 会改变行顺序的地方都走这个：先量位置 → render → 播放 */
+function renderFlip() {
+  const snap = snapRows();
+  render();
+  playRows(snap);
+}
+
+function render() {
+  const host = $('#matrix');
+  const wrap = $('#mwrap');
+  const empty = $('#empty');
+  const stack = state.stack;
+  empty.hidden = stack.length > 0;
+  host.hidden = stack.length === 0;
+  wrap.hidden = stack.length === 0;      /* 空栈时连外框一起收掉，否则 flex 会撑出一块空白边框 */
+  if (!stack.length) { host.innerHTML = ''; renderColbar([]); updateStatus(); return; }
+
+  const { rows, groups, cols, bounds, allBones, shadow } = buildMatrix();
+
+  const head1 = '<th class="corner" rowspan="2" scope="col">'
+    + '<span class="corner-row"><span class="corner-t">动画 <span class="dim">/ 骨骼 →</span></span>'
+    + '<button class="coltoggle" data-coltoggle type="button" aria-expanded="'
+    + (state.colCollapsed ? 'false' : 'true') + '" title="'
+    + (state.colCollapsed ? '展开左边的动画名列' : '收起左边的动画名列，换更多通道列') + '">'
+    + ic(state.colCollapsed ? 'chevronsRight' : 'chevronsLeft') + '</button>'
+    + '<button class="bm-btn' + (state.hiddenBones.length ? ' on' : '') + '" data-bonemgr type="button"'
+    + ' aria-haspopup="dialog" title="选择显示哪些骨骼 · Alt+点骨骼表头 = 只看这一根">'
+    + ic('eye') + '<span>骨骼</span></button></span></th>'
+    + groups.map(g => '<th class="boneh" scope="colgroup" colspan="' + g.bases.length + '"'
+      + ' data-bone="' + escapeHtml(g.bone) + '" tabindex="0" role="button"'
+      + ' aria-label="隐藏 ' + escapeHtml(g.bone) + ' 的通道列"'
+      + ' title="点一下隐藏 ' + escapeHtml(g.bone) + ' 的通道列">'
+      + boneLabel(g.bone)
+      + '<span class="bh-eye" aria-hidden="true">' + ic('eyeOff') + '</span></th>').join('');
+  const head2 = groups.map(g => g.bases.map(b =>
+    '<th class="chanh" scope="col" data-bone="' + escapeHtml(g.bone) + '">' + b + '</th>').join('')).join('');
+
+  const body = rows.map(r =>
+    '<tr class="arow' + (r.item.enabled ? '' : ' off') + (r.ovOn ? ' ovon' : '') + '" data-id="' + r.item.id + '">' + rowHead(r, allBones)
+    + cols.map(c => cellHTML(r, c, bounds, shadow)).join('') + '</tr>').join('');
+
+  /* 最终值行：只跟顺序有关，不代入时间 */
+  const sum = state.sumHidden ? '' : sumRowHTML(cols, computeFinal());
+
+  host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>'
+    + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>'
+    + (state.sumHidden
+      ? '<button class="sumbar" data-sumtoggle type="button" title="展开最终值行">'
+        + '<span class="sumfold">' + ic('chevronsUp') + '</span>最终值 · 已收起，点这里展开</button>'
+      : '');
+  host.style.setProperty('--ncol', cols.length);
+  host.firstChild.classList.toggle('col-collapsed', !!state.colCollapsed);
+  state.allBones = allBones;
+  renderColbar(allBones);
+  syncHeadToggle();
+  updateStatus();
+}
+
+/* 表头折叠：骨骼行 + 通道行一起收起来，手机上能省 70px 左右 */
+/* 收起/展开：左列按钮长在表头左上角，最终值按钮长在底部那一行上，不额外占一行 */
+function toggleCol() {
+  state.colCollapsed = !state.colCollapsed;
+  const t = document.querySelector('#matrix > table');
+  if (t) t.classList.toggle('col-collapsed', !!state.colCollapsed);
+  const b = document.querySelector('.coltoggle');
+  if (b) {
+    b.setAttribute('aria-expanded', state.colCollapsed ? 'false' : 'true');
+    b.title = state.colCollapsed ? '展开左边的动画名列' : '收起左边的动画名列，换更多通道列';
+  }
+  save();
+}
+function toggleSum() {
+  state.sumHidden = !state.sumHidden;
+  render();
+  save();
+}
+
+function initViewToggles() {
+  document.addEventListener('click', e => {
+    if (e.target.closest('[data-coltoggle]')) { toggleCol(); return; }
+    if (e.target.closest('[data-sumtoggle]')) { toggleSum(); return; }
+  });
+}
+
+/* 已隐藏的骨骼：只在有隐藏项时出现；点 chip 恢复单个，右侧一键全恢复 */
+const isPhone = () => matchMedia('(max-width: 480px)').matches;
+
+function renderColbar(allBones) {
+  const bar = $('#colbar');
+  if (!bar) return;
+  /* 手机上横向只有 374px：把这条栏当成「骨骼选择器」用 —— 点一根就只看它 */
+  if (isPhone()) {
+    const vis = allBones.filter(b => state.hiddenBones.indexOf(b) < 0);
+    const solo = vis.length === 1 ? vis[0] : null;
+    bar.hidden = false;
+    bar.classList.add('as-picker');
+    bar.innerHTML = '<span class="cbl" title="手机上只显示选中的骨骼，列会少一大半">'
+      + ic('layers') + '只看</span>'
+      + '<button class="hb bsel' + (solo ? '' : ' on') + '" data-bone="">全部</button>'
+      + allBones.map(b => '<button class="hb bsel' + (solo === b ? ' on' : '') + '" data-bone="'
+        + escapeHtml(b) + '" title="只看 ' + escapeHtml(b) + '">' + escapeHtml(b) + '</button>').join('');
+    return;
+  }
+  bar.classList.remove('as-picker');
+  const hidden = state.hiddenBones.filter(b => allBones.indexOf(b) >= 0);
+  if (!hidden.length) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  bar.innerHTML = '<span class="cbl" title="只影响显示：this 与 override 的判定照旧按全部骨骼算">'
+    + ic('eyeOff') + '已隐藏 <b>' + hidden.length + '</b> 根骨骼</span>'
+    + hidden.map(b => '<button class="hb" data-show="' + escapeHtml(b) + '" title="恢复 ' + escapeHtml(b) + ' 的通道列">'
+      + escapeHtml(b) + ic('close') + '</button>').join('')
+    + '<button class="btn tiny show-all" id="colShowAll">全部显示</button>';
+}
+
+/* 统一的骨骼显隐入口：一次改完再 render，批量操作不会刷一堆历史 */
+function setBonesHidden(next, label) {
+  const cur = state.hiddenBones.join('|');
+  if (next.slice().sort().join('|') === cur.split('|').filter(Boolean).sort().join('|')) return;
+  histPush(label);
+  state.hiddenBones = next.slice();
+  render(); save();
+}
+
+/* Alt+点表头：只留这一根；已经是"只看它"就还原 */
+function soloBone(bone) {
+  const all = state.allBones || [];
+  const others = all.filter(b => b !== bone);
+  const solo = others.every(b => state.hiddenBones.indexOf(b) >= 0) && state.hiddenBones.indexOf(bone) < 0;
+  setBonesHidden(solo ? [] : others, solo ? '显示全部骨骼' : '只看 ' + bone);
+  toast(solo ? '已恢复显示全部骨骼' : '只看 <code>' + escapeHtml(bone) + '</code> · 矩阵上方可恢复');
+}
+
+let bmEl = null;
+
+function closeBoneMgr() {
+  if (!bmEl) return;
+  bmEl.remove();
+  bmEl = null;
+  window.removeEventListener('scroll', placeBoneMgr, true);
+  window.removeEventListener('resize', placeBoneMgr);
+}
+
+function placeBoneMgr() {
+  const btn = document.querySelector('[data-bonemgr]');
+  if (!bmEl || !btn) return;
+  const r = btn.getBoundingClientRect();
+  const w = bmEl.offsetWidth || 268;
+  bmEl.style.left = Math.round(Math.max(12, Math.min(r.left, window.innerWidth - w - 12))) + 'px';
+  bmEl.style.top = Math.round(Math.min(r.bottom + 6, window.innerHeight - 60)) + 'px';
+}
+
+function boneMgrHTML() {
+  const all = state.allBones || [];
+  const hidden = new Set(state.hiddenBones);
+  const shown = all.filter(b => !hidden.has(b)).length;
+  return '<div class="bm-head"><b>显示哪些骨骼</b><span class="bm-n">' + shown + '/' + all.length + '</span></div>'
+    + '<div class="bm-list">' + all.map(b =>
+      '<button class="bm-chip' + (hidden.has(b) ? '' : ' on') + '" data-bm-bone="' + escapeHtml(b) + '"'
+      + ' aria-pressed="' + (hidden.has(b) ? 'false' : 'true') + '">'
+      + '<span class="bm-dot"></span>' + escapeHtml(b) + '</button>').join('') + '</div>'
+    + '<div class="bm-foot"><button data-bm="all">全部显示</button><button data-bm="none">全部隐藏</button></div>';
+}
+
+function refreshBoneMgr() {
+  if (bmEl) bmEl.innerHTML = boneMgrHTML();
+  const btn = document.querySelector('[data-bonemgr]');
+  if (btn) btn.classList.toggle('on', state.hiddenBones.length > 0);
+}
+
+function toggleBoneMgr() {
+  if (bmEl) { closeBoneMgr(); return; }
+  const all = state.allBones || [];
+  if (!all.length) { toast('当前没有骨骼可以选'); return; }
+  bmEl = document.createElement('div');
+  bmEl.className = 'bonemgr';
+  bmEl.setAttribute('role', 'dialog');
+  bmEl.setAttribute('aria-label', '选择显示哪些骨骼');
+  bmEl.innerHTML = boneMgrHTML();
+  document.body.appendChild(bmEl);
+  placeBoneMgr();
+  window.addEventListener('scroll', placeBoneMgr, true);
+  window.addEventListener('resize', placeBoneMgr);
+}
+
+function hideBone(bone) {
+  if (!bone || state.hiddenBones.indexOf(bone) >= 0) return;
+  setBonesHidden(state.hiddenBones.concat([bone]), '收起 ' + bone + ' 的通道列');
+  refreshBoneMgr();
+  toast('已隐藏 <code>' + escapeHtml(bone) + '</code> 的通道列 · 矩阵上方可恢复');
+}
+
+function showBone(bone) {
+  if (state.hiddenBones.indexOf(bone) < 0) return;
+  setBonesHidden(state.hiddenBones.filter(b => b !== bone), '恢复 ' + bone + ' 的通道列');
+  refreshBoneMgr();
+}
+
+function initColbar() {
+  const bar = $('#colbar');
+  bar.addEventListener('click', e => {
+    const bone = e.target.closest('[data-bone]');
+    if (bone) {
+      const b = bone.dataset.bone;
+      if (!b) { setBonesHidden([], '显示全部骨骼'); return; }
+      soloBone(b);
+      return;
+    }
+    const show = e.target.closest('[data-show]');
+    if (show) { showBone(show.dataset.show); return; }
+    if (e.target.closest('#colShowAll')) {
+      const n = state.hiddenBones.length;
+      if (!n) return;
+      histPush('恢复全部骨骼列');
+      state.hiddenBones = [];
+      render(); save();
+      toast('已恢复 ' + n + ' 根骨骼的通道列', 'good');
+    }
+  });
+}
+
+function updateStatus() {
+  const n = state.stack.length;
+  const on = state.stack.filter(i => i.enabled).length;
+  $('#stAnims').textContent = n + ' 个动画' + (n && on !== n ? '（' + on + ' 启用）' : '');
+  const bones = new Set(), chans = new Set();
+  state.stack.forEach(i => {
+    if (!i.enabled) return;
+    i.channels.forEach(ch => { bones.add(ch.bone); chans.add(ch.bone + '|' + ch.base); });
+  });
+  $('#stBones').textContent = bones.size + ' 根骨骼';
+  $('#stChans').textContent = chans.size + ' 个通道';
+  document.title = 'Bedrock Animation Stack · ' + n + ' 个动画';
+}
+
+/* ---------- 行操作 ---------- */
+function toggleItem(it) {
+  histPush((it.enabled ? '停用 ' : '启用 ') + shortKey(it.animKey));
+  it.enabled = !it.enabled;
+  render(); save();
+  toast((it.enabled ? '启用 ' : '停用 ') + '<code>' + escapeHtml(shortKey(it.animKey)) + '</code>');
+}
+
+function removeItem(it) {
+  histPush('移除 ' + shortKey(it.animKey));
+  state.stack = state.stack.filter(x => x !== it);
+  assignColors();
+  render(); save();
+  toast('已移出 <code>' + escapeHtml(shortKey(it.animKey)) + '</code>');
+}
+
+function moveRow(from, to) {
+  if (to < 0 || to >= state.stack.length || to === from) return false;
+  histPush('调整顺序：' + shortKey(state.stack[from].animKey));
+  const it = state.stack.splice(from, 1)[0];
+  state.stack.splice(to, 0, it);
+  renderFlip(); save();
+  const th = document.querySelector('th.rowh[data-id="' + it.id + '"]');
+  if (th) th.focus();
+  $('#stHint').textContent = '第 ' + (to + 1) + ' 行：' + shortKey(it.animKey);
+  return true;
+}
+
+/* 刚拖完的那一下 click 不要当成「点开/关」：整行都能拖之后，拖拽起点经常正好落在动画名上 */
+let lastDragAt = 0;
+
+function initMatrix() {
+  const host = $('#matrix');
+  host.addEventListener('click', e => {
+    if (Date.now() - lastDragAt < 300) return;
+    const bmg = e.target.closest('[data-bonemgr]');
+    if (bmg) { toggleBoneMgr(); return; }
+    const xb = e.target.closest('[data-exp]');
+    if (xb) { toggleCell(xb.dataset.exp); return; }
+    const bh = e.target.closest('th.boneh[data-bone]');
+    if (bh) {
+      if (e.altKey) soloBone(bh.dataset.bone);
+      else hideBone(bh.dataset.bone);
+      return;
+    }
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const th = btn.closest('th.rowh');
+    if (!th) return;
+    const item = state.stack.find(i => i.id === th.dataset.id);
+    if (!item) return;
+    if (btn.dataset.act === 'toggle') toggleItem(item);
+    else if (btn.dataset.act === 'del') removeItem(item);
+  });
+  /* 骨骼面板：点芯片切换、全部显示/隐藏、点别处收起 */
+  document.addEventListener('click', e => {
+    if (!bmEl) return;
+    const chip = e.target.closest('[data-bm-bone]');
+    if (chip) {
+      const bone = chip.dataset.bmBone;
+      const next = state.hiddenBones.slice();
+      const i = next.indexOf(bone);
+      if (i >= 0) next.splice(i, 1); else next.push(bone);
+      setBonesHidden(next, (i >= 0 ? '恢复 ' : '收起 ') + bone + ' 的通道列');
+      refreshBoneMgr();
+      return;
+    }
+    const act = e.target.closest('[data-bm]');
+    if (act) {
+      if (act.dataset.bm === 'all') setBonesHidden([], '显示全部骨骼');
+      else setBonesHidden((state.allBones || []).slice(), '隐藏全部骨骼');
+      refreshBoneMgr();
+      return;
+    }
+    if (!e.target.closest('.bonemgr') && !e.target.closest('[data-bonemgr]')) closeBoneMgr();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && bmEl) closeBoneMgr();
+  });
+
+  /* 键盘等价操作：行首聚焦后 ↑ ↓ 换序，Home / End 到首末行；聚焦骨骼表头后 Enter / 空格隐藏 */
+  host.addEventListener('keydown', e => {
+    const bh = e.target.closest && e.target.closest('th.boneh[data-bone]');
+    if (bh) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+        e.preventDefault();
+        hideBone(bh.dataset.bone);
+      }
+      return;
+    }
+    const th = e.target.closest && e.target.closest('th.rowh[data-id]');
+    if (!th) return;
+    const i = state.stack.findIndex(x => x.id === th.dataset.id);
+    if (i < 0) return;
+    let to = i;
+    if (e.key === 'ArrowUp') to = i - 1;
+    else if (e.key === 'ArrowDown') to = i + 1;
+    else if (e.key === 'Home') to = 0;
+    else if (e.key === 'End') to = state.stack.length - 1;
+    else return;
+    if (moveRow(i, to)) e.preventDefault();
+  });
+}
+
+/* ---------- 拖拽换序（纵向拖行） ---------- */
+function initDrag() {
+  const host = $('#matrix');
+  let drag = null;
+  let timers = [];
+
+  const rows = () => [...host.querySelectorAll('tbody tr.arow')];
+  const rowEl = id => host.querySelector('tbody tr.arow[data-id="' + id + '"]');
+  const topsNow = () => {
+    const m = new Map();
+    rows().forEach(tr => m.set(tr.dataset.id, tr.getBoundingClientRect().top));
+    return m;
+  };
+
+  /* 被拖的行贴着指针走：translateY = 想要的位置 - 它自己的布局位置 */
+  const place = fresh => {
+    const tr = rowEl(drag.id);
+    if (!tr) return;
+    tr.classList.add('lift');
+    const now = tr.getBoundingClientRect().top;
+    const natural = fresh ? now : now - drag.ty;
+    drag.ty = Math.round((drag.curY - drag.offY) - natural);
+    tr.style.transform = 'translateY(' + drag.ty + 'px)';
+  };
+
+  /* 其它行从旧位置滑到新位置（被拖的那行不参与，它自己跟手） */
+  const flipOthers = prev => {
+    rows().forEach(tr => {
+      if (tr.dataset.id === drag.id) return;
+      const old = prev.get(tr.dataset.id);
+      if (old == null) return;
+      const dy = Math.round(old - tr.getBoundingClientRect().top);
+      if (!dy) return;
+      tr.style.transition = 'none';
+      tr.style.transform = 'translateY(' + dy + 'px)';
+      requestAnimationFrame(() => {
+        tr.style.transition = 'transform 190ms cubic-bezier(.2,.8,.2,1)';
+        tr.style.transform = 'translateY(0)';
+        timers.push(setTimeout(() => { tr.style.transition = ''; tr.style.transform = ''; }, 260));
+      });
+    });
+  };
+
+  /* 指针落在「去掉被拖行之后」的第几个位置 */
+  const targetIndex = y => {
+    let to = 0;
+    rows().forEach(tr => {
+      if (tr.dataset.id === drag.id) return;
+      const top = drag.tops.get(tr.dataset.id);
+      if (top == null) return;
+      if (y > top + tr.getBoundingClientRect().height / 2) to++;
+    });
+    return to;
+  };
+
+  const applyTarget = to => {
+    if (!drag.hist) {
+      histPush('调整顺序：' + shortKey(state.stack[drag.si].animKey));
+      drag.hist = true;
+    }
+    const prev = drag.tops;
+    const moved = state.stack.splice(drag.si, 1)[0];
+    state.stack.splice(to, 0, moved);
+    drag.si = to;
+    render();
+    drag.tops = topsNow();
+    flipOthers(prev);
+    place(true);
+  };
+
+  const cleanup = () => {
+    timers.forEach(clearTimeout);
+    timers = [];
+    rows().forEach(tr => {
+      tr.classList.remove('lift');
+      tr.style.transition = '';
+      tr.style.transform = '';
+    });
+    document.body.classList.remove('dragging');
+    drag = null;
+  };
+
+  host.addEventListener('dragstart', e => e.preventDefault());   // 别让浏览器接管成原生拖拽
+
+  host.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    const tr0 = e.target.closest('tbody tr.arow');
+    if (!tr0) return;
+    /* 按钮 / 展开 / 链接不参与拖拽；其余整行（行头 + 所有格子）都能起手 */
+    if (e.target.closest('button, a, input, textarea, select, [data-exp]')) return;
+    /* 触屏：只允许从行首（有 touch-action:none 的那一列）起手，单元格区域留给横向滑动 */
+    if (e.pointerType !== 'mouse' && !e.target.closest('th.rowh')) return;
+    const si0 = +tr0.querySelector('th.rowh').dataset.si;
+    if (!(si0 >= 0)) return;
+    const x0 = e.clientX, y0 = e.clientY;
+
+    const startDrag = ev => {
+      const id = tr0.dataset.id;
+      const tr = rowEl(id);
+      if (!tr) return;
+      drag = {
+        id, si: si0, curY: ev.clientY,
+        offY: ev.clientY - tr.getBoundingClientRect().top,
+        ty: 0, tops: null, hist: false
+      };
+      document.body.classList.add('dragging');
+      const sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+      drag.tops = topsNow();
+      place(true);
+    };
+
+    const stopWait = () => {
+      window.removeEventListener('pointermove', wait);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+    };
+    const wait = ev => {
+      if (!drag) {
+        const dy = Math.abs(ev.clientY - y0), dx = Math.abs(ev.clientX - x0);
+        if (dy < 5 && dx < 12) return;             // 还没动够：先当点击
+        if (dx > 24 && dx > dy * 3) {              // 明显是横向动作：不换序，也别让松手变成点击
+          lastDragAt = Date.now();
+          stopWait();
+          return;
+        }
+        if (dy < 5) return;                        // 竖向还不够，再等等
+        startDrag(ev);
+      }
+      drag.curY = ev.clientY;
+      place();
+      const to = targetIndex(ev.clientY);
+      if (to !== drag.si) applyTarget(to);
+    };
+    const up = () => {
+      stopWait();
+      if (!drag) return;
+      const si = drag.si, changed = drag.hist, key = shortKey(state.stack[si].animKey);
+      cleanup();
+      lastDragAt = Date.now();
+      if (!changed) return;
+      save();
+      toast('顺序已更新 · <code>' + escapeHtml(key) + '</code> 现在是第 ' + (si + 1) + ' 行', 'good');
+    };
+    const cancel = () => {
+      stopWait();
+      if (!drag) return;
+      cleanup();
+      lastDragAt = 0;
+    };
+    window.addEventListener('pointermove', wait);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+  });
+}
+
+/* 触屏首次访问：告诉用户行首可以按住拖动（只出现一次） */
+/* 调试：地址栏加 ?diag=1 时，左上角显示真实视口 / 媒体查询命中情况 */
+function initDiag() {
+  if (!/[?&]diag\b/.test(location.search)) return;
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;left:0;top:0;z-index:9999;max-width:100%;background:#000;color:#0f0;'
+    + 'font:11px/1.5 ui-monospace,monospace;padding:6px 8px;white-space:pre;opacity:.92';
+  document.body.appendChild(box);
+  const h = el => el ? Math.round(el.getBoundingClientRect().height) : '-';
+  const paint = () => {
+    const t = document.querySelector('.mtx');
+    const th = document.querySelector('tbody th.rowh');
+    const lines = [
+      innerWidth + 'x' + innerHeight + '  dpr=' + devicePixelRatio,
+      'mq767=' + matchMedia('(max-width:767px)').matches
+        + '  mq1023=' + matchMedia('(max-width:1023px)').matches
+        + '  coarse=' + matchMedia('(pointer:coarse)').matches,
+      'table=' + (t ? Math.round(t.getBoundingClientRect().width) + 'x' + Math.round(t.getBoundingClientRect().height) : '-'),
+      th ? 'row=' + h(th) + '  top=' + h(th.querySelector('.rh-top')) + '  meta=' + h(th.querySelector('.rh-meta'))
+         + '  cell=' + h(document.querySelector('tbody td.cell')) : 'row=-'
+    ];
+    const tr = document.querySelector('tbody tr.arow');
+    if (tr) {
+      const parts = [...tr.children].map(c => (c.className || c.tagName).split(' ')[0] + ':' + Math.round(c.getBoundingClientRect().height));
+      const vec = tr.querySelector('td.cell .vec');
+      lines.push('children=' + parts.join(' '));
+      if (vec) lines.push('vec=' + Math.round(vec.getBoundingClientRect().height) + ' spans=' + vec.children.length);
+      lines.push('trStyle=' + (tr.getAttribute('style') || '-'));
+      const cs = el => { const g = getComputedStyle(el); return g.paddingTop + '/' + g.paddingBottom + ' h=' + g.height + ' minH=' + g.minHeight + ' lh=' + g.lineHeight + ' fs=' + g.fontSize; };
+      lines.push('tr  ' + cs(tr) + ' rect=' + Math.round(tr.getBoundingClientRect().height));
+      const td0 = tr.querySelector('td.cell'); if (td0) lines.push('td  ' + cs(td0));
+      if (th) lines.push('th  ' + cs(th));
+      const inner = [...tr.querySelectorAll('td.cell > *')].map(el => (el.className.split(' ')[0] || el.tagName) + ':' + Math.round(el.getBoundingClientRect().height * 10) / 10);
+      lines.push('inner=' + inner.join(' '));
+    }
+    box.textContent = lines.join('\n');
+  };
+  paint();
+  setTimeout(paint, 600);
+  addEventListener('resize', paint);
+}
+function initDragHint() {
+  try {
+    if (!window.matchMedia || !matchMedia('(pointer: coarse)').matches) return;
+    if (localStorage.getItem('hint.drag.v1')) return;
+    const shell = document.querySelector('.shell');
+    if (!shell) return;
+    const el = document.createElement('div');
+    el.className = 'dragtip';
+    el.setAttribute('role', 'note');
+    el.innerHTML = '<span class="g" aria-hidden="true"></span>'
+      + '<span>按住行首的抓手<b>上下拖</b>可以改叠加顺序；想左右看通道，从格子上划。</span>'
+      + '<button class="x" type="button">知道了</button>';
+    shell.insertBefore(el, shell.firstChild);
+    const dismiss = () => {
+      localStorage.setItem('hint.drag.v1', '1');
+      el.remove();
+    };
+    el.querySelector('.x').addEventListener('click', dismiss);
+    // 真的拖了一次就不用再教了
+    document.addEventListener('pointerdown', ev => {
+      if (el.isConnected && ev.target.closest('th.rowh')) dismiss();
+    }, { capture: true, passive: true });
+  } catch (e) { /* 提示条失败不影响主流程 */ }
+}
+function assignColors() {
+  const used = new Set();
+  state.stack.forEach(it => {
+    if (it.color && !used.has(it.color)) used.add(it.color);
+    else it.color = null;
+  });
+  state.stack.forEach((it, i) => {
+    if (it.color) return;
+    let c = STACK_COLORS.find(x => !used.has(x));
+    if (!c) c = 'hsl(' + ((i * 47) % 360) + ' 55% 62%)';
+    it.color = c;
+    used.add(c);
+  });
+}
+
+function save() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      v: 4,
+      items: state.stack.map(i => ({
+        animKey: i.animKey, def: i.def, fileName: i.fileName,
+        enabled: i.enabled, color: i.color
+      })),
+      hiddenBones: state.hiddenBones,
+  colCollapsed: !!state.colCollapsed,
+  sumHidden: !!state.sumHidden,
+      vars: state.vars
+    }));
+  } catch (e) { /* 存不下就算了 */ }
+}
+
+function load() {
+  let raw = null;
+  try { raw = localStorage.getItem(LS_KEY); } catch (e) { return false; }
+  if (!raw) return false;
+  try {
+    const data = JSON.parse(raw);
+    if (!data || data.v !== 4 || !Array.isArray(data.items) || !data.items.length) return false;
+    state.stack = data.items.map(d => {
+      const it = makeItem(d.animKey, d.def, d.fileName || '', 'saved');
+      it.enabled = d.enabled !== false;
+      it.color = d.color || STACK_COLORS[0];
+      return it;
+    });
+    state.colCollapsed = !!data.colCollapsed;
+  state.sumHidden = !!data.sumHidden;
+  state.hiddenBones = Array.isArray(data.hiddenBones)
+      ? data.hiddenBones.filter(b => typeof b === 'string')
+      : [];
+    state.vars = {};
+    if (data.vars && typeof data.vars === 'object') {
+      Object.keys(data.vars).forEach(k => {
+        const v = Number(data.vars[k]);
+        if (isFinite(v)) state.vars[k] = v;
+      });
+    }
+    return true;
+  } catch (e) { return false; }
+}
+
+function newItems(defs, fileName, origin) {
+  const made = [];
+  defs.forEach(d => {
+    const it = makeItem(d.key, d.def, d.file || fileName || '', origin || 'sample');
+    if (typeof d.on === 'boolean') it.enabled = d.on;
+    made.push(it);
+  });
+  return made;
+}
+
+function addToStack(items, opts) {
+  opts = opts || {};
+  if (!items.length) return;
+  histPush('加入 ' + (items.length === 1 ? shortKey(items[0].animKey) : items.length + ' 个动画'));
+  const offset = state.stack.length;
+  items.forEach((it, i) => {
+    it.color = STACK_COLORS[(offset + i) % STACK_COLORS.length];
+    state.stack.push(it);
+  });
+  assignColors();
+  render();
+  save();
+  if (!opts.quiet) {
+    toast('加入 ' + items.length + ' 个动画：<code>' + items.map(i => escapeHtml(shortKey(i.animKey))).slice(0, 3).join('</code> <code>') + (items.length > 3 ? '…' : '') + '</code>', 'good');
+  }
+}
+
+/* ---------- 示例 ---------- */
+function defaultSamples() { return SAMPLES.filter(s => s.on); }
+
+function loadSamples(opts) {
+  state.stack = newItems(defaultSamples(), 'bedrock-samples v1.26.50.4', 'sample');
+  assignColors();
+  render();
+  save();
+  if (!opts || !opts.quiet) toast('已载入 ' + defaultSamples().length + ' 个默认示例', 'good');
+}
+
+/* ---------- 示例库（勾选即生效） ---------- */
+function sampleRow(s, inStack) {
+  const on = inStack.has(s.key);
+  return '<label class="lib-row' + (on ? ' in-stack' : '') + '">'
+    + '<input type="checkbox" value="' + escapeHtml(s.key) + '"' + (on ? ' checked' : '') + '>'
+    + '<span class="nm">' + escapeHtml(shortKey(s.key)) + '</span>'
+    + (s.note ? '<span class="ds">' + escapeHtml(s.note) + '</span>' : '')
+    + (on ? '<span class="k">已在栈里</span>' : '')
+    + '</label>';
+}
+
+function openSampleLibrary() {
+  const inStack = new Set(state.stack.map(i => i.animKey));
+  const body = '<div class="lib">'
+    + '<p class="lib-note">勾上就立刻加进动画栈，取消勾选就立刻移除，不用再点确认；「替换整栈」= 清掉现有全部、只留这一组。加进来之后拖行首改顺序，决定 <code>this</code> 读到什么、<code>override</code> 切在哪一行。</p>'
+    + SAMPLE_GROUPS.map(g => {
+      const rows = g.keys.map(k => SAMPLES.find(s => s.key === k)).filter(Boolean);
+      return '<section class="lib-group" data-group="' + g.id + '">'
+        + '<header class="lib-head">' + ic('layers')
+        + '<h4>' + escapeHtml(g.title) + '</h4>'
+        + '<span class="cnt">' + rows.length + '</span>'
+        + '<button class="btn tiny" data-all="' + g.id + '">全选</button>'
+        + '<button class="btn tiny primary" data-grab="' + g.id + '" title="清掉当前动画栈，只保留这一组（其他动画删除）">替换整栈</button></header>'
+        + '<p class="lib-note">' + escapeHtml(g.note) + '</p>'
+        + rows.map(s => sampleRow(s, inStack)).join('')
+        + '</section>';
+    }).join('')
+    + '</div>';
+  const foot = '<button class="btn" id="libClear">清空动画栈</button>'
+    + '<button class="btn primary" data-close="1">完成</button>';
+  openModal('示例动画库', body, foot);
+}
+
+/* 让某一行进/出动画栈 */
+function libToggle(key, on) {
+  const has = state.stack.some(i => i.animKey === key);
+  if (on && !has) {
+    const s = SAMPLES.find(x => x.key === key);
+    if (!s) return;
+    const its = newItems([s], 'bedrock-samples v1.26.50.4', 'sample');
+    its.forEach(i => { i.enabled = true; });
+    addToStack(its, { quiet: true });
+  } else if (!on && has) {
+    histPush('移除 ' + shortKey(key));
+    state.stack = state.stack.filter(i => i.animKey !== key);
+    render(); save();
+  }
+}
+
+/* 按 state.stack 回写弹窗里的勾选与标签 */
+function libSyncRows() {
+  const bodyEl = $('#modalBody');
+  if (!bodyEl || $('#modal').hidden) return;
+  const have = new Set(state.stack.map(i => i.animKey));
+  $$('.lib-row', bodyEl).forEach(row => {
+    const cb = row.querySelector('input');
+    if (!cb) return;
+    const on = have.has(cb.value);
+    cb.checked = on;
+    row.classList.toggle('in-stack', on);
+    const tag = row.querySelector('.k');
+    if (on && !tag) {
+      const sp = document.createElement('span');
+      sp.className = 'k';
+      sp.textContent = '已在栈里';
+      row.appendChild(sp);
+    } else if (!on && tag) {
+      tag.remove();
+    }
+  });
+}
+
+/* 「替换整栈」：清掉现有全部，只留这一组（顺序 = 组里 keys 的顺序） */
+function libGrabGroup(id) {
+  const g = SAMPLE_GROUPS.find(x => x.id === id);
+  if (!g) return;
+  histPush('替换整栈：' + g.title);
+  const items = g.keys.map(k => SAMPLES.find(s => s.key === k)).filter(Boolean);
+  if (!items.length) return;
+  const its = newItems(items, 'bedrock-samples v1.26.50.4', 'sample');
+  its.forEach(i => { i.enabled = true; });
+  const dropped = state.stack.filter(i => g.keys.indexOf(i.animKey) < 0).length;
+  state.stack = its;
+  assignColors();
+  render(); save();
+  libSyncRows();
+  toast('动画栈已换成「' + g.title + '」· ' + its.length + ' 个动画'
+    + (dropped ? '，移除 ' + dropped + ' 个' : ''), 'good');
+}
+
+function initSamples() {
+  $('#btnSamples').addEventListener('click', () => openSampleLibrary());
+  $('#modal').addEventListener('click', e => {
+    const all = e.target.closest('[data-all]');
+    if (all) {
+      const g = SAMPLE_GROUPS.find(x => x.id === all.dataset.all);
+      const boxes = $$('.lib-group[data-group="' + all.dataset.all + '"] input', $('#modalBody'));
+      const next = !boxes.every(b => b.checked);
+      (g ? g.keys : []).forEach(k => libToggle(k, next));
+      libSyncRows();
+      all.textContent = next ? '取消全选' : '全选';
+      return;
+    }
+    const grab = e.target.closest('[data-grab]');
+    if (grab) { libGrabGroup(grab.dataset.grab); return; }
+    if (e.target.closest('#libClear')) {
+      histPush('清空动画栈');
+      state.stack = []; render(); save(); libSyncRows(); toast('动画栈已清空');
+      return;
+    }
+  });
+  /* 勾选即生效；同一动画出现在多组时状态一致 */
+  $('#modal').addEventListener('change', e => {
+    const cb = e.target;
+    if (!cb.matches || !cb.matches('.lib-row input[type=checkbox]')) return;
+    libToggle(cb.value, cb.checked);
+    libSyncRows();
+  });
+}
+
+/* ---------- modal ---------- */
+function openModal(title, bodyHTML, footHTML) {
+  $('#modalTitle').textContent = title;
+  $('#modalBody').innerHTML = bodyHTML;
+  $('#modalFoot').innerHTML = footHTML || '<button class="btn" data-close="1">关闭</button>';
+  $('#modal').hidden = false;
+}
+function closeModal() { $('#modal').hidden = true; }
+function initModal() {
+  $('#modalClose').addEventListener('click', closeModal);
+  $('#modal').addEventListener('click', e => {
+    if (e.target === $('#modal') || e.target.closest('[data-close]')) closeModal();
+  });
+  /* Esc 关闭弹窗（以前只能点关闭/遮罩） */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$('#modal').hidden) { e.preventDefault(); closeModal(); }
+  });
+}
+
+/* ---------- 导入 ---------- */
+/* bedrock-samples 里有几个动画文件带 // 注释（bee/cat/humanoid/player/...），
+   所以先用宽松解析，失败了再退回严格 JSON.parse */
+function looseJSON(src) {
+  let out = '', i = 0, q = null, n = src.length;
+  while (i < n) {
+    const c = src[i], d = src[i + 1];
+    if (q) {
+      out += c;
+      if (c === '\\') { out += src[i + 1] || ''; i += 2; continue; }
+      if (c === q) q = null;
+      i++; continue;
+    }
+    if (c === '"' || c === "'") { q = c === "'" ? '"' : c; out += c; i++; continue; }
+    if (c === '/' && d === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '/' && d === '*') { i += 2; while (i < n && !(src[i] === '*' && src[i + 1] === '/')) i++; i += 2; continue; }
+    out += c; i++;
+  }
+  out = out.replace(/"(\\.|[^"\\])*"|,(\s*[}\]])/g, (m, str) => (str ? m : m.replace(',', '')));
+  return out;
+}
+function parseJSONish(text) {
+  const s = String(text);
+  try { return JSON.parse(s); } catch (e) {
+    const cleaned = looseJSON(s.replace(/^\uFEFF/, ''));
+    return JSON.parse(cleaned);
+  }
+}
+
+function ingestFiles(files) {
+  const list = [...files];
+  if (!list.length) return;
+  let pending = list.length;
+  const collected = [];
+  list.forEach(f => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const json = parseJSONish(String(reader.result));
+        const items = parseAnimFile(json, f.name, 'import');
+        items.forEach(it => collected.push(it));
+      } catch (err) {
+        toast('解析失败 ' + escapeHtml(f.name) + '：' + escapeHtml(err.message || err), 'bad');
+      }
+      if (--pending === 0) finish(collected);
+    };
+    reader.onerror = () => {
+      toast('读不了 ' + escapeHtml(f.name), 'bad');
+      if (--pending === 0) finish(collected);
+    };
+    reader.readAsText(f);
+  });
+  function finish(items) {
+    if (!items.length) return;
+    if (items.length === 1) { addToStack(items); return; }
+    pickItems(items);
+  }
+}
+
+function pickItems(items) {
+  const body = '<p class="note">这个文件里有 ' + items.length + ' 个动画，勾选要加入动画栈的（默认全选）：</p>'
+    + '<div class="pick-list">' + items.map((it, i) =>
+      '<label class="pick"><input type="checkbox" checked data-i="' + i + '">'
+      + '<span>' + escapeHtml(shortKey(it.animKey)) + '</span>'
+      + '<span class="pl">' + it.channels.length + ' 通道 · ' + (it.length).toFixed(2) + 's</span></label>').join('')
+    + '</div>';
+  openModal('选择要导入的动画', body,
+    '<button class="btn" data-close="1">取消</button><button class="btn primary" id="pickOk">加入所选</button>');
+  $('#pickOk').addEventListener('click', () => {
+    const chosen = $$('#modalBody input[type=checkbox]').filter(c => c.checked).map(c => items[+c.dataset.i]);
+    closeModal();
+    if (chosen.length) addToStack(chosen);
+  });
+}
+
+function ingestText(text, name) {
+  let json;
+  try { json = parseJSONish(text); } catch (e) {
+    throw new Error('不是合法 JSON：' + e.message);
+  }
+  const items = parseAnimFile(json, name || 'pasted.json', 'paste');
+  if (items.length === 1) addToStack(items);
+  else pickItems(items);
+}
+
+function initImport() {
+  $('#btnImport').addEventListener('click', () => $('#fileInput').click());
+  $('#fileInput').addEventListener('change', e => {
+    ingestFiles(e.target.files);
+    e.target.value = '';
+  });
+  const veil = $('#dropveil');
+  let depth = 0;
+  window.addEventListener('dragenter', e => {
+    if (!e.dataTransfer || ![...(e.dataTransfer.types || [])].includes('Files')) return;
+    depth++; veil.classList.add('on');
+  });
+  window.addEventListener('dragover', e => { e.preventDefault(); });
+  window.addEventListener('dragleave', e => {
+    depth = Math.max(0, depth - 1);
+    if (!depth) veil.classList.remove('on');
+  });
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    depth = 0; veil.classList.remove('on');
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const entries = [...(dt.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+    if (entries.length) {
+      const files = [];
+      let pending = entries.length;
+      const done = () => { if (--pending === 0) ingestFiles(files); };
+      entries.forEach(en => walkEntry(en, files, done));
+    } else if (dt.files && dt.files.length) {
+      ingestFiles(dt.files);
+    }
+  });
+}
+function walkEntry(entry, out, done) {
+  if (entry.isFile) {
+    entry.file(f => { out.push(f); done(); }, () => done());
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const all = [];
+    const readMore = () => {
+      reader.readEntries(batch => {
+        if (!batch.length) {
+          let pending = all.length;
+          if (!pending) { done(); return; }
+          all.forEach(en => walkEntry(en, out, () => { if (--pending === 0) done(); }));
+          return;
+        }
+        all.push(...batch);
+        readMore();
+      }, () => done());
+    };
+    readMore();
+  } else done();
+}
+
+function initPaste() {
+  $('#btnPaste').addEventListener('click', () => {
+    openModal('粘贴动画 JSON',
+      '<p class="note">直接贴 bedrock-samples 里 <code>animations/*.json</code> 的内容，或者裸的 <code>{ "bones": { … } }</code>。</p>'
+      + '<textarea id="pasteArea" spellcheck="false" placeholder=\'{ "format_version": "1.8.0", "animations": { "animation.demo.test": { "loop": true, "bones": { "head": { "rotation": [0, 20, 0] } } } } }\'></textarea>'
+      + '<div class="err" id="pasteErr"></div>',
+      '<button class="btn" data-close="1">取消</button><button class="btn primary" id="pasteOk">解析并加入</button>');
+    $('#pasteOk').addEventListener('click', () => {
+      try {
+        ingestText($('#pasteArea').value, 'pasted.json');
+        closeModal();
+      } catch (err) {
+        $('#pasteErr').textContent = err.message || String(err);
+      }
+    });
+  });
+}
+
+/* ---------- 导出 ---------- */
+function exportPayload() {
+  const { cols, bounds } = buildMatrix();
+  return {
+    generator: 'bedrock-anim-lab',
+    layout: 'rows = animations (top row evaluates first), columns = bone / channel, cells = raw JSON literals',
+    order: cols.map((c, i) => ({
+      at: i + 1, anim: c.item.animKey, enabled: c.item.enabled,
+      override: c.item.flags.override, length: c.item.length
+    })),
+    boundaries: bounds.map(b => ({ at: b.si + 1, anim: b.item.animKey, clears: b.item.bones })),
+    cells: cols.map(c => ({
+      anim: c.item.animKey,
+      channels: c.item.channels.map(ch => ({
+        bone: ch.bone, channel: ch.base,
+        key: ch.rawKey,
+        kind: ch.kind,
+        raw: ch.src,
+        usesThis: !!ch.flags.thisRef,
+        usesMolang: !!ch.flags.molang
+      }))
+    }))
+  };
+}
+function initExport() {
+  $('#btnExport').addEventListener('click', () => {
+    const json = JSON.stringify(exportPayload(), null, 2);
+    openModal('导出当前叠加结果',
+      '<p class="note">导出的不是算完的数值：它是当前动画栈的<strong>顺序</strong>、每个 override 的<strong>边界</strong>，以及每个通道在 JSON 里的<strong>原文</strong>（<code>raw</code> / <code>usesThis</code> / <code>usesMolang</code>），Molang 不求值。</p>'
+      + '<textarea id="exportArea" readonly spellcheck="false" style="min-height:260px;color:#a9c6c1">' + escapeHtml(json) + '</textarea>',
+      '<button class="btn" data-close="1">关闭</button>'
+      + '<button class="btn" id="copyExp">复制</button>'
+      + '<button class="btn primary" id="dlExp">下载 .json</button>');
+    $('#copyExp').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(json); toast('已复制到剪贴板', 'good'); }
+      catch (e) { $('#exportArea').select(); toast('已全选，按 Ctrl+C', 'bad'); }
+    });
+    $('#dlExp').addEventListener('click', () => {
+      const blob = new Blob([json], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'bedrock-anim-stack.json';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    });
+  });
+}
+
+/* ---------- 说明 ---------- */
+/* ---------- 变量取值弹窗 ---------- */
+function varRowHTML(name) {
+  const v = state.vars[name];
+  return '<label class="var-row">'
+    + '<code>' + escapeHtml(name) + '</code>'
+    + '<input class="var-in" data-var="' + escapeHtml(name) + '" type="number" step="any" inputmode="decimal"'
+    + ' title="按住左右拖动调值：1px = 1，Shift ×10，Alt ×0.1；也可以直接输入"'
+    + ' placeholder="未设置"' + (v == null ? '' : ' value="' + v + '"') + '>'
+    + '</label>';
+}
+
+function varsBodyHTML() {
+  const names = collectVarNames();
+  const vset = Object.keys(state.vars);
+  /* 设过值、但当前栈里已经没有谁引用的（换过栈 / 删过行）—— 留在这儿才能清掉 */
+  const orphan = vset.filter(k => names.indexOf(k) < 0).sort();
+  if (!names.length && !orphan.length) {
+    return '<p class="note">当前栈里没有引用 <code>variable.*</code> / <code>query.*</code>。'
+      + '导入带变量的动画后再来。</p>';
+  }
+  const vars = names.filter(n => n.indexOf('variable.') === 0);
+  const qs = names.filter(n => n.indexOf('variable.') !== 0);
+  const sec = (title, list, hint, key) => list.length
+    ? '<div class="vars-sec"' + (key ? ' data-sec="' + key + '"' : '') + '><h5>' + title
+      + (hint ? ' <span class="vars-hint">' + hint + '</span>' : '')
+      + '</h5>' + list.map(varRowHTML).join('') + '</div>'
+    : '';
+  return '<p class="note">填上值，<b>最终值</b>那行会直接算出数字；清空就退回原来的符号式。'
+    + '也可以按住输入框左右拖动：<span id="varsHint">拖多少改多少</span>，手停就停（1px = 1，Shift ×10，Alt ×0.1）。'
+    + '这里只影响最终值的计算，格子里的原文不动。</p>'
+    + sec('variable', vars) + sec('query / 其他', qs)
+    + sec('已设置但当前栈没用到', orphan, '清空可移除', 'orphan');
+}
+
+function openVars() {
+  openModal('变量取值', varsBodyHTML(),
+    '<button class="btn" id="varsClear">全部清空</button><button class="btn primary" data-close="1">完成</button>');
+}
+
+/* 写入一个变量值（null = 清掉）；重绘按 ~16ms 节流。
+   不用 rAF：后台标签页 rAF 会被挂起，拖动时表格会僵住。 */
+let varLast = 0, varTimer = 0;
+function applyVar(name, v) {
+  if (v == null || !isFinite(v)) delete state.vars[name];
+  else state.vars[name] = Math.round(v * 1000) / 1000;
+  const now = performance.now();
+  if (now - varLast > 16) { varLast = now; render(); }
+  else if (!varTimer) {
+    varTimer = setTimeout(() => { varTimer = 0; varLast = performance.now(); render(); }, 24);
+  }
+}
+
+function initVars() {
+  $('#btnVars').addEventListener('click', openVars);
+  $('#modalBody').addEventListener('input', e => {
+    const input = e.target.closest('.var-in');
+    if (!input) return;
+    const name = input.dataset.var;
+    const raw = input.value.trim();
+    applyVar(name, raw === '' ? null : Number(raw));
+    save();
+    /* 「已设置但没用到」那一段会随清空而消失：只在段数真的变了时重建弹窗，免得抢走输入焦点 */
+    const had = !!$('#modalBody .vars-sec[data-sec="orphan"]');
+    const nom = collectVarNames();
+    const now = Object.keys(state.vars).some(k => nom.indexOf(k) < 0);
+    if (had !== now) $('#modalBody').innerHTML = varsBodyHTML();
+  });
+
+  /* 按住输入框左右拖动 = 按位移改值（1px = 1，Shift ×10，Alt ×0.1）。
+     纯位移驱动：手不动值就不动；不足 3px 当作普通点击，交给输入框自己处理。 */
+  let scrub = null;
+  $('#modalBody').addEventListener('pointerdown', e => {
+    const input = e.target.closest('.var-in');
+    if (!input || e.button !== 0) return;
+    scrub = {
+      input, name: input.dataset.var, x0: e.clientX,
+      v0: input.value === '' ? null : Number(input.value), moved: false
+    };
+  });
+  window.addEventListener('pointermove', e => {
+    if (!scrub) return;
+    const dx = e.clientX - scrub.x0;
+    if (!scrub.moved) {
+      if (Math.abs(dx) < 3) return;          /* 还没到拖动阈值：留给点击/输入 */
+      scrub.moved = true;
+      document.body.classList.add('vscrub');
+      $('#varsHint') && ($('#varsHint').textContent = '松开即可固定');
+    }
+    const step = e.shiftKey ? 10 : (e.altKey ? 0.1 : 1);
+    const v = (scrub.v0 == null ? 0 : scrub.v0) + dx * step;
+    applyVar(scrub.name, v);
+    if (state.vars[scrub.name] != null) scrub.input.value = String(state.vars[scrub.name]);
+  });
+  window.addEventListener('pointerup', () => {
+    if (!scrub) return;
+    const moved = scrub.moved;
+    scrub = null;
+    document.body.classList.remove('vscrub');
+    const hint = $('#varsHint');
+    if (hint) hint.textContent = '按住左右拖动调值';
+    if (moved) save();
+  });
+  window.addEventListener('pointercancel', () => {
+    scrub = null;
+    document.body.classList.remove('vscrub');
+  });
+
+  $('#modal').addEventListener('click', e => {
+    if (!e.target.closest('#varsClear')) return;
+    state.vars = {};
+    render(); save();
+    $('#modalBody').innerHTML = varsBodyHTML();
+  });
+}
+
+/* ---------- 关于 ---------- */
+function openAbout() {
+  const body = '<div class="about">'
+    + '<img class="face" src="avatar.png" alt="" width="58" height="58">'
+    + '<div class="id"><b>汉西 · Hancy</b>'
+    + '<a class="bili" href="https://space.bilibili.com/326409387" target="_blank" rel="noopener"'
+    + ' title="打开哔哩哔哩个人空间">'
+    + '<img src="bili.png" alt="" width="18" height="18"><span>哔哩哔哩 @小汉西</span>'
+    + '<svg class="icon" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8.5 8.5M18 14.5V19a1.5 1.5 0 01-1.5 1.5H5A1.5 1.5 0 013.5 19V7.5A1.5 1.5 0 015 6h4.5"></path></svg>'
+    + '</a></div>'
+    + '</div>'
+    + '<p>本项目由汉西发起并主持，以 <b>vibe coding</b> 的方式与 AI 协作完成。'
+    + '产品定位、交互细节与全部取舍由其本人决定，实现由 AI 协助产出。</p>'
+    + '<p>头像分别取自其 Minecraft 皮肤与哔哩哔哩个人主页。</p>'
+    + '<p class="src">动画示例逐字引自 <code>bedrock-samples v1.26.50.4</code>，未作改写。</p>';
+  openModal('关于', body, '<span class="src">© 2026 汉西 Hancy</span><button class="btn" data-close="1">关闭</button>');
+}
+
+function initDocs() {
+  const openDocs = () => {
+    const docs = [
+      ['order', '这张表怎么读', '<strong>一行 = 一段动画，一列 = 骨骼下面的一个通道</strong>（<code>head · rotation</code> 就是一列）。上面第一行先算，越往下越靠后叠。单元格里的值就是 JSON 里写的那几个字面量，<strong>没有代入时间、也没有算出数字</strong> —— 表达式原样摆着，因为你要看的是「作者写了什么」。'],
+      ['layers', '顺序就是语义', '整行按住都能拖，把整段动画上下挪。<code>this</code> 读到的是它<strong>上面</strong>所有行的累计，<code>override</code> 只抹掉它上面那些行 —— 所以换顺序 = 换结果，这也是这套动画系统里最容易踩的坑。'],
+      ['eyeOff', '只看想看的骨骼', '点<strong>骨骼表头</strong>（<code>root</code> / <code>head</code> 那一格）可以把它下面的通道列收起来，腾出横向空间。收起来只是不显示，<strong>不影响 <code>this</code> 与 <code>override</code> 的判定</strong>；矩阵上方会出现「已隐藏 N 根骨骼」，点骨骼名或「全部显示」恢复。'],
+      ['undo', '撤销 / 重做', 'Ctrl+Z 撤销，Ctrl+Y（或 Ctrl+Shift+Z）重做，顶栏两个箭头按钮也能点。顺序调整、启停、增删、收起骨骼列都能回退，最多 80 步；在输入框里仍然是浏览器自带的撤销，不会被抢。'],
+      ['thisMark', 'this', '<code>this</code>（旧写法 <code>-this</code>）不是通道后缀，而是<strong>值表达式里的一项</strong>，代表「这个通道在上面所有行上的累计值」。所以 <code>"0.5 - this"</code> 等于把该轴设成绝对值 0.5，<code>"-this"</code> 把该轴清零，<code>"-this + 2"</code> 得到 2。只有<strong>引用了 this 的那一条轴</strong>会标蓝，行头另有 <code>this ×N</code> 计数。'],
+      ['ban', '空与划掉', '两种「空」不是一回事：<code>·</code> = 这段动画有这根骨骼、但没写这个通道；<strong>斜纹格</strong> = 这段动画压根没有这根骨骼（行头的 <code>骨骼 4/8</code> 就是覆盖率，悬停能看具体漏了哪几根）。文字被划掉 = 被下面的行作废，分两种：<strong>淡琥珀底 + 琥珀划掉</strong> = 被下面的 <code>override</code> 整根作废；<strong>只有灰色划掉</strong> = 被下面的 <code>- this</code> 写成绝对值（整格或单条轴）。'],
+      ['eye', '快速隐藏骨骼', '矩阵左上角那个 <b>骨骼</b> 按钮会把所有骨骼列出来，点一下开/关，底部还有「全部显示 / 全部隐藏」。也可以直接点骨骼表头隐藏它；<kbd>Alt</kbd> + 点 = <b>只看这一根</b>，再 Alt + 点一次还原。隐藏只影响显示，<code>this</code> 和 override 的判定照旧按全部骨骼算。'],
+      ['sigma', '最终值（底部那行）', '表格最下面一行是把上面各行<strong>按顺序叠起来</strong>的结果：<code>this</code> 用上一行的结果代入，<code>override</code> 先把它碰到的骨骼清零。<strong>不代入数字</strong>——式子里有 <code>variable</code> / <code>query</code> 就原样留在表达式里，只做化简和抵消（<code>this + (-this)</code> 会直接消掉，<code>-this + 10</code> 最后就是 <code>10</code>）；关键帧这种随时间变的量记作 <code>t</code>。鼠标停在格子上能看到最后是哪一行写的。'],
+      ['override', 'override_previous_animation', '这一行带 <code>true</code> 时，引擎先把<strong>它碰到的骨骼</strong>清成 0 / 0 / 0（scale 是 1 / 1 / 1）再写自己的值 —— 也就是把它上面所有行在这几根骨骼上的账全部作废。这一行的<b>顶边有一条琥珀线</b>（= 上面的累计到这里切断），行头底色也偏琥珀；上面被它抹掉的格子会变成<b>淡琥珀底 + 琥珀色划掉</b> + 琥珀 <code>⟂</code>（这样能和 <code>- this</code> 那种「只有灰色划掉」区分开），鼠标停在行头的 <code>override</code> 标记上能看到它具体清哪几根骨骼。'],
+      ['keyframe', '关键帧', '关键帧写成 <code>{ "0.5": [x,y,z] }</code>。时间标在行首，帧数多于 4 个时先列前 3 帧 + <code>… 共 N 帧</code>，点格子底部的<strong>「展开」</strong>看全部。<code>pre</code> 与 <code>post</code> 不同时那一帧标成琥珀色（在这一点跳变）；<code>lerp_mode: "catmullrom"</code> 会单独标出来。'],
+      ['molang', '表达式', '<code>variable.*</code> / <code>query.*</code> / <code>math.*</code> 都是照抄的原文，不代入数字。所以这张表既能当阅读器，也能拿来核对「我到底写没写对」。'],
+      ['clock', '时长与循环', '行头显示 <code>animation_length</code>（缺省取最后一帧）和 <code>loop</code> 模式：<code>loop</code> 循环 / <code>hold</code> 停在末帧 / <code>once</code> 播完即止。'],
+      ['fx', '事件', '<code>sound_effects</code> / <code>particle_effects</code> 有内容时行头会显示 <code>fx ×N</code>，鼠标悬停看名字。'],
+      ['inbox', '示例库', '顶部「示例库」分三组：<strong>bedrock-samples 原生</strong>（默认栈）、<strong>FMBE 基础</strong>、<strong>FMBE 进阶 · 3D 方块</strong>。后两组列的是 wiki 页面里出现的原版动画，JSON 与仓库里的文件一致，没有改写。'],
+      ['keyboard', '操作', '拖动行首换顺序（整块行头都能拖，不必瞄准小圆点；往上/下拖 5px 才算拖，轻点仍是开/关）· 点行标题或眼睛启用/停用 · 点骨骼表头收起该骨骼的通道列 · 点垃圾桶移除这一行 · <kbd>拖文件</kbd>进窗口导入 · 顶部「导出」看当前顺序与所有原始值。'],
+      ['brace', '文件来源', '示例逐字取自 bedrock-samples <code>v1.26.50.4</code> 的 <code>resource_pack/animations/*.json</code>。真实文件里有 6 个带 <code>//</code> 注释、不是严格 JSON，直接拖进来也能解析。']
+    ];
+    openModal('语义说明与图例', '<div class="docs">' + docs.map(d =>
+      '<div class="doc-card"><h4>' + ic(d[0]) + d[1] + '</h4><p>' + d[2] + '</p></div>').join('') + '</div>');
+  };
+  $('#btnDocs').addEventListener('click', openDocs);
+  const about = $('#btnAbout');
+  if (about) about.addEventListener('click', openAbout);
+}
+
+/* ---------- boot ---------- */
+function boot() {
+  initTheme();
+  const restored = load();
+  if (!restored) loadSamples({ quiet: true });
+  assignColors();
+  initModal();
+  initSamples();
+  initImport();
+  initPaste();
+  initExport();
+  initDocs();
+  initVars();
+  initMatrix();
+  initColbar();
+  initViewToggles();
+  initHistory();
+  initDrag();
+  $('#stHint').textContent = HINT_DEFAULT;
+  render();
+  initDragHint();
+  initDiag();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
+</script>
+
+
+</body></html>

@@ -853,6 +853,10 @@ body.dragging { cursor: grabbing; user-select: none; }
 }
 .mtx tbody tr.lift > th { z-index: 10; }
 .mtx tbody tr.lift > th:first-child { box-shadow: inset 3px 0 0 var(--c, var(--border-2)), 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2); }
+/* 身份色只在「正指着它 / 正拖着它」时露出来：一次只有一行，不会跟语义色（琥珀=override、紫=this、天蓝=molang）抢注意力 */
+@media (hover: hover) and (pointer: fine) {
+  .mtx tbody tr.arow:hover > th.rowh { box-shadow: inset 3px 0 0 var(--c, var(--border-2)); }
+}
 
 /* ============================================================
    Footer
@@ -1384,7 +1388,7 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   vertical-align: middle;
   white-space: normal;
   cursor: grab;                                  /* 整行都能起手拖 */
-  box-shadow: inset 3px 0 0 var(--c, var(--border-2));
+  box-shadow: none;                              /* 身份色默认不画，避免被读成状态色；见下方 hover / drag */
 }
 .mtx tbody tr.arow > td { cursor: grab; }
 .mtx tbody tr.arow > td button,
@@ -2118,7 +2122,10 @@ function makeChannel(bone, base, raw, rawKey, legacyKey) {
 const containsMolang = v => typeof v === 'string' || (Array.isArray(v) && v.some(x => typeof x === 'string'));
 
 /* ---------------- 动画条目 ---------------- */
-const STACK_COLORS = ['#5fd48b', '#38bdf8', '#c084fc', '#ffb04d', '#f472b6', '#a3e635', '#fbbf24', '#22d3ee'];
+/* 身份色：只用来区分「这是另一段动画」，不表示状态。
+   琥珀(--amber=override)、紫(--violet=this)、天蓝(--sky=molang) 是语义色，不能拿来当身份色，
+   否则一条普通的行会被读成「它 override 了」——所以这里只用这 4 个，多的统一给钢蓝。 */
+const STACK_COLORS = ['#5fd48b', '#f472b6', '#a3e635', '#2dd4bf', '#8b9dc3'];
 const SPECIAL_KEYS = ['loop', 'animation_length', 'start_delay', 'blend_weight', 'override_previous_animation',
   'sound_effects', 'particle_effects', 'timeline', 'anim_time_update', 'bones_that_should_be_visible'];
 
