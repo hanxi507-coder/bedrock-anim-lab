@@ -728,15 +728,14 @@ html[data-theme="light"] .expr.th {
 .colbar .cbl b { color: var(--text-2); font-weight: 600; font-family: var(--mono); }
 .colbar .show-all { margin-left: auto; }
 
-/* 表头折叠条：常驻一行 22px，点一下把 <thead>（骨骼行 + 通道行）收起来 */
-.headbar {
-  display: flex;
+/* 三个视图开关：表头 / 动画面板（左列）/ 最终值 —— 窄屏省空间用 */
+.togglerow { display: flex; gap: 6px; margin: 0 0 6px; }
+.tg {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
-  width: 100%;
-  height: 22px;
-  margin: 0 0 6px;
-  padding: 0 8px;
+  height: 24px;
+  padding: 0 9px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--card);
@@ -744,13 +743,26 @@ html[data-theme="light"] .expr.th {
   font: inherit;
   font-size: 11px;
   cursor: pointer;
-  text-align: left;
+  white-space: nowrap;
 }
-.headbar:hover { color: var(--text-2); border-color: var(--border-2); }
-.headbar .hb-caret { font-size: 9px; line-height: 1; transition: transform .15s var(--ease, ease); }
-.headbar[aria-expanded="false"] .hb-caret { transform: rotate(-90deg); }
-.headbar .hb-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tg:hover { color: var(--text-2); border-color: var(--border-2); }
+.tg .tg-caret { font-size: 9px; line-height: 1; transition: transform .15s ease; }
+.tg[aria-expanded="false"] { color: var(--text-2); border-color: var(--border-2); }
+.tg[aria-expanded="false"] .tg-caret { transform: rotate(-90deg); }
 .mtx.head-collapsed thead { display: none; }
+
+/* 左列收窄：只留 序号 + 抓手 + 启停/删除，标题与徽标收起 */
+.mtx.col-collapsed thead th.corner,
+.mtx.col-collapsed tbody th.rowh { width: 96px; min-width: 96px; padding: 4px 6px; }
+.mtx.col-collapsed tbody th.rowh .rh-top { flex-wrap: wrap; gap: 3px 4px; }
+.mtx.col-collapsed tbody th.rowh .rh-top .key {
+  font-size: 10px; line-height: 1.2;
+  -webkit-line-clamp: 1; overflow: hidden;
+}
+.mtx.col-collapsed tbody th.rowh .rh-meta { display: none; }
+.mtx.col-collapsed tbody th.rowh .rh-top .acts { width: 100%; justify-content: flex-start; gap: 3px; }
+.mtx.col-collapsed .corner-t,
+.mtx.col-collapsed .bm-btn span { display: none; }
 /* 手机：这条栏当骨骼选择器用（只显示选中的那一根） */
 .colbar.as-picker { gap: 5px; padding: 5px 7px; flex-wrap: nowrap; overflow-x: auto; }
 .colbar.as-picker .cbl { flex: none; color: var(--text-3); }
@@ -1437,7 +1449,13 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   padding: 6px 10px;
   vertical-align: top;
 }
-.mtx tbody tr.arow:hover td { background: color-mix(in srgb, var(--card) 88%, var(--hover)); }
+/* 悬浮提示：以前是整行换底色，容易被误读成"这一行状态变了"；
+   改成行首一条 2px 竖线 + 行首底色，数据区不动 */
+.mtx tbody tr.arow:hover td { background: transparent; }
+.mtx tbody tr.arow:hover th.rowh { box-shadow: inset 2px 0 0 var(--accent), inset 3px 0 0 var(--c, var(--border-2)); }
+@media (hover: none) {
+  .mtx tbody tr.arow:hover th.rowh { box-shadow: inset 3px 0 0 var(--c, var(--border-2)); }
+}
 .mtx tbody tr.arow.off td { opacity: .5; }
 .mtx tbody tr.arow.off th.rowh { opacity: 1; }
 
@@ -1470,12 +1488,11 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
   .nav { height: auto; min-height: 52px; padding: 8px 12px; row-gap: 6px; flex-wrap: wrap; }
   .brand-text small { display: none; }
   .nav-spacer { display: none; }
-  .nav-actions {
-    width: 100%; gap: 4px; flex-wrap: nowrap;
-    overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
-  }
-  .nav-actions::-webkit-scrollbar { display: none; }
-  .nav-actions > * { flex: none; }
+  /* 以前是横向滚动，右边的按钮用户根本发现不了。
+     display:contents 让按钮直接参与 .nav 的换行，导航高度才会正确撑开 */
+  .nav { gap: 6px; }
+  .nav-actions { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; }
+  .nav-icons { display: flex; gap: 5px; }
   .btn { height: 30px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
   .btn.icon-only { width: 30px; }
   .btn .icon { width: 14px; height: 14px; }
@@ -1623,6 +1640,7 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
       <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7"></path></svg>
       示例库
     </button>
+    <span class="nav-icons">
     <button class="btn ghost icon-only" id="btnUndo" aria-label="撤销（Ctrl+Z）" title="没有可撤销的操作" disabled="">
       <svg class="icon" viewBox="0 0 24 24"><path d="M9 14.2L4.2 9.4 9 4.6"></path><path d="M4.2 9.4h10a5.4 5.4 0 010 10.8H10"></path></svg>
     </button>
@@ -1639,15 +1657,24 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
       <svg class="icon" id="icoThemeDark" viewBox="0 0 24 24"><path d="M21 12.8A8.5 8.5 0 1111.2 3a7 7 0 009.8 9.8z"></path></svg>
       <svg class="icon" id="icoThemeLight" viewBox="0 0 24 24" hidden=""><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
     </button>
+    </span>
   </div>
 </header>
 
 <div class="shell">
   <div class="colbar" id="colbar" hidden></div>
 
-  <button class="headbar" id="headToggle" type="button" aria-expanded="true">
-    <span class="hb-caret">▾</span><span class="hb-txt">表头 · 骨骼 / 通道</span>
-  </button>
+  <div class="togglerow" id="togglerow">
+    <button class="tg" id="headToggle" type="button" aria-expanded="true" title="收起/展开表头（骨骼行 + 通道行）">
+      <span class="tg-caret">▾</span><span class="tg-txt">表头</span>
+    </button>
+    <button class="tg" id="colToggle" type="button" aria-expanded="true" title="把左边的动画名列收窄成一小条，换取更多通道列">
+      <span class="tg-caret">▾</span><span class="tg-txt">动画面板</span>
+    </button>
+    <button class="tg" id="sumToggle" type="button" aria-expanded="true" title="收起/展开底部的「最终值」行">
+      <span class="tg-caret">▾</span><span class="tg-txt">最终值</span>
+    </button>
+  </div>
 
   <div class="mwrap" id="mwrap"><div id="matrix"></div></div>
 
@@ -2235,7 +2262,9 @@ const state = {
   vars: {},                  // 用户给 variable.* / query.* 设的值（Blockbench 那种变量占位符），键是完整名
   hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
   openCells: new Set(),      // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
-  headCollapsed: false       // 表头（骨骼行 + 通道行）是否收起，省一屏的竖向空间
+  headCollapsed: false,      // 表头（骨骼行 + 通道行）是否收起，省一屏的竖向空间
+  colCollapsed: false,       // 左边动画名列是否收窄成一小条
+  sumHidden: false           // 底部「最终值」行是否收起
 };
 
 /* ---------- 撤销 / 重做 ----------
@@ -2916,11 +2945,12 @@ function render() {
     + cols.map(c => cellHTML(r, c, bounds, shadow)).join('') + '</tr>').join('');
 
   /* 最终值行：只跟顺序有关，不代入时间 */
-  const sum = sumRowHTML(cols, computeFinal());
+  const sum = state.sumHidden ? '' : sumRowHTML(cols, computeFinal());
 
   host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道"><thead><tr>' + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>';
   host.style.setProperty('--ncol', cols.length);
   host.firstChild.classList.toggle('head-collapsed', !!state.headCollapsed);
+  host.firstChild.classList.toggle('col-collapsed', !!state.colCollapsed);
   state.allBones = allBones;
   renderColbar(allBones);
   syncHeadToggle();
@@ -2928,24 +2958,37 @@ function render() {
 }
 
 /* 表头折叠：骨骼行 + 通道行一起收起来，手机上能省 70px 左右 */
+const TG = [
+  ['#headToggle', 'headCollapsed'],
+  ['#colToggle', 'colCollapsed'],
+  ['#sumToggle', 'sumHidden']
+];
 function syncHeadToggle() {
-  const b = $('#headToggle');
-  if (!b) return;
-  const on = !state.headCollapsed;
-  b.setAttribute('aria-expanded', on ? 'true' : 'false');
-  const t = b.querySelector('.hb-txt');
-  if (t) t.textContent = on ? '表头 · 骨骼 / 通道' : '表头已收起 · 点这里展开';
+  TG.forEach(([sel, key]) => {
+    const b = $(sel);
+    if (!b) return;
+    b.setAttribute('aria-expanded', state[key] ? 'false' : 'true');
+    b.classList.toggle('off', !!state[key]);
+  });
 }
 
 function initHeadToggle() {
-  const b = $('#headToggle');
-  if (!b) return;
-  b.addEventListener('click', () => {
-    state.headCollapsed = !state.headCollapsed;
-    const t = document.querySelector('#matrix > table');
-    if (t) t.classList.toggle('head-collapsed', !!state.headCollapsed);
-    syncHeadToggle();
-    save();
+  TG.forEach(([sel, key]) => {
+    const b = $(sel);
+    if (!b) return;
+    b.addEventListener('click', () => {
+      state[key] = !state[key];
+      if (key === 'sumHidden') { render(); }        /* 最终值行要重排整表 */
+      else {
+        const t = document.querySelector('#matrix > table');
+        if (t) {
+          t.classList.toggle('head-collapsed', !!state.headCollapsed);
+          t.classList.toggle('col-collapsed', !!state.colCollapsed);
+        }
+        syncHeadToggle();
+      }
+      save();
+    });
   });
 }
 
@@ -3449,6 +3492,8 @@ function save() {
       })),
       hiddenBones: state.hiddenBones,
   headCollapsed: !!state.headCollapsed,
+  colCollapsed: !!state.colCollapsed,
+  sumHidden: !!state.sumHidden,
       vars: state.vars
     }));
   } catch (e) { /* 存不下就算了 */ }
@@ -3468,6 +3513,8 @@ function load() {
       return it;
     });
     state.headCollapsed = !!data.headCollapsed;
+  state.colCollapsed = !!data.colCollapsed;
+  state.sumHidden = !!data.sumHidden;
   state.hiddenBones = Array.isArray(data.hiddenBones)
       ? data.hiddenBones.filter(b => typeof b === 'string')
       : [];
