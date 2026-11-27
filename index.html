@@ -1487,6 +1487,10 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
     box-shadow: inset 2px 0 0 var(--accent);
   }
 }
+/* 拖动过程中不要任何焦点环 / 强调色混进来 —— 拖拽态一律中性 */
+body.dragging .mtx th:focus-visible,
+body.dragging .mtx td:focus-visible,
+body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
 .mtx tbody tr.arow.off td { opacity: .5; }
 .mtx tbody tr.arow.off th.rowh { opacity: 1; }
 
@@ -3329,6 +3333,8 @@ function initDrag() {
     return to;
   };
 
+  /* 换位时**不重建表格**：render() 会把所有 tr 换成新节点，被拖的那行与其它行的
+     FLIP 变换不在同一帧里落地，看起来就是"两张卡抽一下"。这里只 insertBefore 挪节点。 */
   const applyTarget = to => {
     if (!drag.hist) {
       histPush('调整顺序：' + shortKey(state.stack[drag.si].animKey));
@@ -3338,7 +3344,13 @@ function initDrag() {
     const moved = state.stack.splice(drag.si, 1)[0];
     state.stack.splice(to, 0, moved);
     drag.si = to;
-    render();
+    const tr = rowEl(drag.id);
+    const tbody = tr && tr.parentNode;
+    if (tbody) {
+      const others = rows().filter(x => x.dataset.id !== drag.id);
+      const anchor = others[to] || tbody.querySelector('tr.sumrow') || null;
+      tbody.insertBefore(tr, anchor);
+    }
     drag.tops = topsNow();
     flipOthers(prev);
     place(true);
@@ -3412,7 +3424,17 @@ function initDrag() {
       stopWait();
       if (!drag) return;
       const si = drag.si, changed = drag.hist, key = shortKey(state.stack[si].animKey);
-      cleanup();
+      /* 松手：先把被拖的行平滑落回自己的格位，再重建一次表格（序号 / 汇总 / 标记都归位）。
+         拖动过程中不 render，所以这里必须补一次。 */
+      const tr = rowEl(drag.id);
+      if (changed && tr) {
+        tr.style.transition = 'transform 140ms cubic-bezier(.2,.8,.2,1)';
+        tr.style.transform = 'translateY(0)';
+        setTimeout(() => { cleanup(); render(); }, 150);
+      } else {
+        cleanup();
+        if (changed) render();
+      }
       lastDragAt = Date.now();
       if (!changed) return;
       save();

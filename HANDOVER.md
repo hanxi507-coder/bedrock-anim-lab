@@ -509,6 +509,16 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 ## 14. 变更记录（接手后）
 
+### 2026-11-27 22:35 · 拖动换位不再整表重建（修「两张卡抽一下」）+ 拖拽态彻底去色
+
+- 用户反馈两条：「电脑端拖动时不是中性色」「拖动交换时两个卡片会抽出一下」。
+- **抽一下的真因**：`applyTarget()` 每次跨过中线都调 `render()`，把 `tbody` 整个 innerHTML 换成新节点；紧接着 `flipOthers()` 又给这些**新节点**设 FLIP 位移。被拖的那行与其它行的变换不在同一帧落地，中间就闪一下（看着像两张卡被拉伸/复制）。指针快速划过多行时每跨一次都会来一遍。
+- 改法：
+  1. `applyTarget()` 不再 `render()`，只 `state.stack` 换位 + `tbody.insertBefore(tr, anchor)` 挪一个节点（anchor = 去掉被拖行后的第 `to` 个 `tr.arow`，没有就插到 `tr.sumrow` 前）。其它行照旧 FLIP，且因为节点没被替换，过渡是连续的。
+  2. 松手：先把被拖行 `transition: transform 140ms` 落回 `translateY(0)`，150ms 后 `cleanup(); render();` —— 序号（01…）、`最终值`、`dead/cutall` 标记都在这一刻归位。
+  3. 去色：`body.dragging .mtx th/td:focus-visible { outline: none }`（拖拽时点下行首会命中 `th.rowh:focus-visible` 的 2px 强调色描边，那就是"不是中性色"的来源）；`.lift` 行首竖线用 `--text-2`、行底色 `--hover`、其余行 `opacity:.45`。
+- 验证（桌面 1482×685，合成 PointerEvent 序列）：拖动中 `body.dragging=true`、`.lift=1`、DOM 顺序随指针实时变；松手后 `idx` 变回 `01…05`、DOM 顺序 === `state.stack`、`.lift=0`、`body.dragging=false`。
+- 注意：拖动过程中单元格内容不会重算（矩阵显示的是 JSON 原文，与顺序无关），但 `最终值` 与 `dead/cutall` 标记是顺序相关的 —— 它们统一在松手后的那次 `render()` 刷新。
 ### 2026-11-27 22:28 · 「正在拖」不占色相：改用抬升 + 压暗其它行
 
 - 用户反馈「我正在拖的这一行的强调色也是紫色」—— 对，`--accent`(#6366F1) 和 `--violet`(#A78BFA) 在深色底上都是紫，拖拽色又会和 `this` 撞车。**结论：色相已经被语义占满了（琥珀=override、紫=this、天蓝=molang），"正在操作"这类瞬时状态不该再要一个色相。**
