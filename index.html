@@ -642,7 +642,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .mtx td.cell.clip .sumv { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .vec { display: flex; flex-direction: column; gap: 2px; }
-.vec span {
+/* 只作用于三轴行本身；写成 .vec span 会把格子里的变量名也变成 flex，从而不再换行 */
+.vec > span {
   display: flex;
   align-items: flex-start;
   gap: 6px;
@@ -946,15 +947,19 @@ body.vscrub .var-in { border-color: var(--accent); }
   color: var(--accent);
   opacity: .8;
 }
-/* 表格里的变量名：点一下直接改值（单元格本身是省略号裁切的，按钮得保持内联） */
+/* 表格里的变量名：点一下直接改值。
+   必须 display:inline + white-space:inherit —— 用 inline-block 会变成一个不可断行的整体，
+   单元格「展开」后就顶出列宽、压到右邻格的字上 */
 .vref {
-  font: inherit; color: inherit; background: none; border: 0; padding: 0;
-  cursor: pointer; line-height: inherit;
-  border-bottom: 1px dotted currentColor;
+  display: inline;
+  font: inherit; line-height: inherit; color: inherit; white-space: inherit;
+  background: rgba(99, 102, 241, .085);
+  border: 0; padding: 0 2px; margin: 0 -2px; border-radius: 2px;
+  cursor: pointer;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
 }
-.vref:hover, .vref:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
-.vref:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
-@media (pointer: coarse) { .vref { border-bottom-style: solid; border-bottom-width: 1px; } }
+.vref:hover, .vref:focus-visible { background: rgba(99, 102, 241, .24); color: var(--accent); }
+.vref:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* 从表格点进来时，那一行高亮一下 */
 .vars-sec .var-row.hit { background: rgba(99, 102, 241, .10); border-radius: 6px; }
 /* 关于弹窗 */
@@ -1906,7 +1911,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 02:40';
+const BUILD = '11-28 03:16';
 const LS_KEY = 'bedrock-anim-lab.v4';
 /* 触屏只能从行首那一列起手（单元格区域留给横向滑动）；鼠标在整行任意位置都能拖 */
 const TOUCH_ONLY = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
@@ -2855,7 +2860,7 @@ function litHTML(v, base) {
     const th = /\bthis\b/.test(v);
     /* 把 variable./query. 之类的记号包成可点的小按钮：点一下直接打开变量弹窗并定位到它 */
     const body = escapeHtml(v).replace(/\b((?:variable|query|context|temp)\.[A-Za-z0-9_]+)/g,
-      '<button type="button" class="vref" data-var="$1" title="点一下改这个值">$1</button>');
+      '<span class="vref" role="button" tabindex="0" data-var="$1" title="点一下改这个值">$1</span>');
     return '<code class="expr' + (th ? ' th' : '') + '" title="' + escapeHtml(v) + '">' + body + '</code>';
   }
   const n = Number(v);
@@ -3308,6 +3313,12 @@ let lastDragAt = 0;
 
 function initMatrix() {
   const host = $('#matrix');
+  host.addEventListener('keydown', e => {
+    const vr = e.target.closest('.vref');
+    if (!vr || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    openVars(vr.dataset.var);
+  });
   host.addEventListener('click', e => {
     if (Date.now() - lastDragAt < 300) return;
     const vr = e.target.closest('.vref');
