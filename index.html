@@ -847,24 +847,27 @@ body.dragging { cursor: grabbing; user-select: none; }
   z-index: 9;
   will-change: transform;
 }
+/* 「正在拖」只用"抬起来"表达（更亮的表面 + 描边 + 投影 + 把别的行压暗），
+   **不占任何色相** —— 紫 = this、琥珀 = override，再来一个紫就分不清了。 */
 .mtx tbody tr.lift > th,
 .mtx tbody tr.lift > td {
-  /* 抬起来的那一行整体染一点强调色 —— 在深色底上比投影更"看得见" */
-  background: color-mix(in srgb, var(--accent) 9%, var(--card));
-  box-shadow: 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2);
-}
-.mtx tbody tr.lift > th:first-child,
-.mtx tbody tr.lift > td:last-child {
-  box-shadow: 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2), 0 10px 22px -8px rgb(0 0 0 / .45);
+  background: var(--hover);
+  box-shadow: 0 -1px 0 var(--border-2), 0 1px 0 var(--border-2);
 }
 .mtx tbody tr.lift > th { z-index: 10; }
-.mtx tbody tr.lift > th:first-child {
-  box-shadow: inset 3px 0 0 var(--accent), 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2),
-              0 10px 22px -8px rgb(0 0 0 / .45);
+.mtx tbody tr.lift > th:first-child,
+.mtx tbody tr.lift > td:last-child {
+  box-shadow: 0 -1px 0 var(--border-2), 0 1px 0 var(--border-2), 0 14px 26px -10px rgb(0 0 0 / .55);
 }
-/* 悬浮：只给行首一条 2px 强调色，不碰任何底色，也不带身份色 */
+.mtx tbody tr.lift > th:first-child {
+  box-shadow: inset 3px 0 0 var(--text-2), 0 -1px 0 var(--border-2), 0 1px 0 var(--border-2),
+              0 14px 26px -10px rgb(0 0 0 / .55);
+}
+/* 拖拽时把其它行压暗，剩下的那一行自然成为焦点（无彩色提示） */
+body.dragging .mtx tbody tr.arow:not(.lift) > * { opacity: .45; }
+/* 悬浮：只给行首一条 2px 中性灰，同样不占色相 */
 @media (hover: hover) and (pointer: fine) {
-  .mtx tbody tr.arow:hover > th.rowh { box-shadow: inset 2px 0 0 var(--accent); }
+  .mtx tbody tr.arow:hover > th.rowh { box-shadow: inset 2px 0 0 var(--text-3); }
 }
 
 /* ============================================================
