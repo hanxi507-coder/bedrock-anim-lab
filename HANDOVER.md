@@ -486,6 +486,14 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 ## 14. 变更记录（接手后）
 
+### 2026-11-27 12:32 · 浏览器桥接恢复，重拍 preview
+
+- 断连原因：Edge 没开 + 守护进程重启后设备记录是 revoked + MV3 service worker 约 10 秒就休眠（日志里每次「browser connected」后 10s 就 10054）。
+- 处理：用 Profile 1 启动 Edge；`bsk daemon trust-local on`；清掉 `~/.bsk/local-pairings.json` 里那条 revoked 设备（备份 `local-pairings.backup.json`）；在扩展弹窗里点一次「配对」，弹窗别关（保活 SW）。
+- 已按当前代码重拍 `preview.png`（1848×857，默认 5 行，字号为"只放大元信息"那一版）。
+- 附：`bsk open --width/--height` 不会改已有窗口尺寸，`bsk window resize` 需要 cooperate sync 的 observation；截图尺寸取决于 Edge 窗口本身。
+
+
 ### 2026-11-27 12:26 · 「关于」加哔哩哔哩空间链接与头像
 
 - 用户要求把 B 站空间和头像也放进来。
@@ -493,7 +501,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 - 头像：`https://api.bilibili.com/x/web-interface/card?mid=326409387` 拿 `face`（`i0.hdslb.com/bfs/face/00c38b…jpg`，300×300，Minecraft 风格的 "Hancy" 字标），下载后 `scale=64:64` 存 `bili.png`（5.8 KB）。
 - 布局：名字下方那行改成链接 `[18px b站头像] 哔哩哔哩 @小汉西 ↗`，`target="_blank" rel="noopener"`，指向 `https://space.bilibili.com/326409387`；悬停变亮 + 浅底。
 - 说明句从「界面头像取自其本人的 Minecraft 皮肤」改成「头像分别取自其 Minecraft 皮肤与哔哩哔哩个人主页」—— 现在有两张图，得说清。
-- 没重拍 `preview.png`（浏览器桥接仍断）。
+- 12:32 桥接恢复后已重拍 `preview.png`（1848×857）。
 
 
 ### 2026-11-27 12:18 · 「关于」文案改正式
@@ -525,7 +533,7 @@ const LS_KEY = 'bedrock-anim-lab.v4';
   - `… 共 N 帧` `.more` 10.5 → 11
   - 逐轴 `⟂` 9.5 → 10；格子角 `⟂` 10 → 10.5；轴字母 9.5 → 10.5
 - 表格主体（表达式 / 数字 / 动画名）回到原尺寸，行高也回到原样。
-- 这一轮没重拍 `preview.png`（bsk 守护进程重启后浏览器扩展没重连，`no_browser_connected`），仓库里那张仍是"整体放大"版本，下轮能连上时再拍。
+- 这一轮没重拍 `preview.png`（浏览器桥接断开），12:32 连上后已按当前代码重拍。
 
 
 ### 2026-11-27 12:05 · 署名（关于弹窗 + 头像）与字号上调
