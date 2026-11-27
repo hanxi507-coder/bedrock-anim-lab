@@ -1,7 +1,7 @@
 # Bedrock Animation Stack · 接手指南
 
 > 这份文档写给接手的人（或模型）。目标：读完就能改，不用重新猜需求。
-> 最后更新：**2026-11-27 12:18（接手第二十二次改动）** · `index.html` **3501 行 / 142,222 B**，`node --check` 通过。
+> 最后更新：**2026-11-27 12:26（接手第二十三次改动）** · `index.html` **3523 行 / 143,022 B**，`node --check` 通过。
 > 仓库已 `git init`（分支 `main`），接手前的基线是 commit `0eeaf25`，用 `git diff 0eeaf25` 就能看到我改了什么。
 
 ---
@@ -78,7 +78,8 @@ node D:\scripts\bedrock-anim-lab\server.js        # -> http://127.0.0.1:8765/ind
 
 ```
 D:\scripts\bedrock-anim-lab\        ← 已是 git 仓库（main）
-├─ index.html        142222 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ index.html        143022 B  ← 全部交付物（HTML+CSS+JS 内联）
+├─ bili.png             5.8 KB 哔哩哔哩头像（i0.hdslb.com 拉下来 → 64×64 PNG）
 ├─ avatar.png           803 B  作者头像：从 %APPDATA%/minecraft-desktop-pet/skin.png 裁的 8×8 脸（+帽子层），放大到 160×160 最近邻
 ├─ preview.png       142000 B  默认 5 行矩阵截图（深色，1848×857，2026-11-26 重拍：表格铺满到状态栏、覆盖率 + 斜纹 + -this 划掉）
 ├─ samples.png       144938 B  示例库弹窗截图（深色，含「替换整栈」按钮）
@@ -484,6 +485,16 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 ---
 
 ## 14. 变更记录（接手后）
+
+### 2026-11-27 12:26 · 「关于」加哔哩哔哩空间链接与头像
+
+- 用户要求把 B 站空间和头像也放进来。
+- 通过 `search.bilibili.com/upuser?keyword=小汉西` 找到账号：**UID 326409387**，899 粉丝、23 个视频，简介「希望人生如游戏如此，我将用命令方块改变我的命运」—— 对得上（命令方块 + 动画）。
+- 头像：`https://api.bilibili.com/x/web-interface/card?mid=326409387` 拿 `face`（`i0.hdslb.com/bfs/face/00c38b…jpg`，300×300，Minecraft 风格的 "Hancy" 字标），下载后 `scale=64:64` 存 `bili.png`（5.8 KB）。
+- 布局：名字下方那行改成链接 `[18px b站头像] 哔哩哔哩 @小汉西 ↗`，`target="_blank" rel="noopener"`，指向 `https://space.bilibili.com/326409387`；悬停变亮 + 浅底。
+- 说明句从「界面头像取自其本人的 Minecraft 皮肤」改成「头像分别取自其 Minecraft 皮肤与哔哩哔哩个人主页」—— 现在有两张图，得说清。
+- 没重拍 `preview.png`（浏览器桥接仍断）。
+
 
 ### 2026-11-27 12:18 · 「关于」文案改正式
 
