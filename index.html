@@ -743,6 +743,39 @@ html[data-theme="light"] .expr.th {
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
 .colbar .hb:hover { color: var(--text); border-color: var(--border-2); }
+/* 触屏：行首画一个抓手点阵 + 首次访问给一条可关掉的提示 */
+.dragtip {
+  display: flex; align-items: center; gap: 9px;
+  margin: 0 0 8px; padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent) 7%, var(--card));
+  font-size: 11.5px; line-height: 1.5; color: var(--text-2);
+}
+.dragtip .g {
+  flex: none; width: 10px; height: 17px; border-radius: 2px;
+  color: var(--text-3);
+  background-image: radial-gradient(currentColor 1.2px, transparent 1.3px);
+  background-size: 5px 5.5px; background-position: 0 1px;
+}
+.dragtip b { color: var(--text); font-weight: 600; }
+.dragtip .x {
+  margin-left: auto; flex: none; height: 24px; padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--card); color: var(--text-2);
+  font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.dragtip .x:hover { color: var(--text); border-color: var(--border-2); }
+
+@media (pointer: coarse) {
+  .mtx tbody th.rowh { cursor: default; }
+  .mtx tbody th.rowh .rh-top::before {
+    content: ''; flex: none; width: 9px; height: 17px; border-radius: 2px;
+    color: var(--text-3); opacity: .85;
+    background-image: radial-gradient(currentColor 1.1px, transparent 1.2px);
+    background-size: 4.5px 5.2px; background-position: 0 1px;
+  }
+}
 .colbar .hb .icon { width: 11px; height: 11px; opacity: .55; }
 
 /* ---- 拖拽 ---- */
@@ -3203,6 +3236,31 @@ function initDrag() {
   });
 }
 
+/* 触屏首次访问：告诉用户行首可以按住拖动（只出现一次） */
+function initDragHint() {
+  try {
+    if (!window.matchMedia || !matchMedia('(pointer: coarse)').matches) return;
+    if (localStorage.getItem('hint.drag.v1')) return;
+    const shell = document.querySelector('.shell');
+    if (!shell) return;
+    const el = document.createElement('div');
+    el.className = 'dragtip';
+    el.setAttribute('role', 'note');
+    el.innerHTML = '<span class="g" aria-hidden="true"></span>'
+      + '<span>按住行首的抓手<b>上下拖</b>可以改叠加顺序；想左右看通道，从格子上划。</span>'
+      + '<button class="x" type="button">知道了</button>';
+    shell.insertBefore(el, shell.firstChild);
+    const dismiss = () => {
+      localStorage.setItem('hint.drag.v1', '1');
+      el.remove();
+    };
+    el.querySelector('.x').addEventListener('click', dismiss);
+    // 真的拖了一次就不用再教了
+    document.addEventListener('pointerdown', ev => {
+      if (el.isConnected && ev.target.closest('th.rowh')) dismiss();
+    }, { capture: true, passive: true });
+  } catch (e) { /* 提示条失败不影响主流程 */ }
+}
 function assignColors() {
   const used = new Set();
   state.stack.forEach(it => {
@@ -3823,6 +3881,7 @@ function boot() {
   initDrag();
   $('#stHint').textContent = HINT_DEFAULT;
   render();
+  initDragHint();
 }
 
 if (document.readyState === 'loading') {
