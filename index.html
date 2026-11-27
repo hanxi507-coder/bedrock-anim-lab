@@ -791,12 +791,7 @@ html[data-theme="light"] .expr.th {
   background: color-mix(in srgb, var(--accent) 7%, var(--card));
   font-size: 11.5px; line-height: 1.5; color: var(--text-2);
 }
-.dragtip .g {
-  flex: none; width: 10px; height: 17px; border-radius: 2px;
-  color: var(--text-3);
-  background-image: radial-gradient(currentColor 1.2px, transparent 1.3px);
-  background-size: 5px 5.5px; background-position: 0 1px;
-}
+
 .dragtip b { color: var(--text); font-weight: 600; }
 .dragtip .x {
   margin-left: auto; flex: none; height: 24px; padding: 0 9px;
@@ -1887,7 +1882,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 02:02';
+const BUILD = '11-28 02:10';
 const LS_KEY = 'bedrock-anim-lab.v4';
 /* 触屏只能从行首那一列起手（单元格区域留给横向滑动）；鼠标在整行任意位置都能拖 */
 const TOUCH_ONLY = !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
@@ -3592,8 +3587,7 @@ function initDragHint() {
     const el = document.createElement('div');
     el.className = 'dragtip';
     el.setAttribute('role', 'note');
-    el.innerHTML = '<span class="g" aria-hidden="true"></span>'
-      + '<span>按住行首的抓手<b>上下拖</b>可以改叠加顺序；想左右看通道，从格子上划。</span>'
+    el.innerHTML = '<span>按住行首的抓手<b>上下拖</b>可以改叠加顺序；想左右看通道，从格子上划。</span>'
       + '<button class="x" type="button">知道了</button>';
     shell.insertBefore(el, shell.firstChild);
     const dismiss = () => {
