@@ -411,7 +411,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---- 列 ---- */
 .mtx th.col {
-  box-shadow: inset 0 2px 0 var(--c, var(--border-2));
+  box-shadow: inset 0 2px 0 var(--border-2);
 }
 .mtx th.col.ov {
   background: var(--amber-soft);
@@ -840,7 +840,8 @@ html[data-theme="light"] .expr.th {
 /* ---- 拖拽 ---- */
 body.dragging { cursor: grabbing; user-select: none; }
 
-/* 被拎起来的那一行：挡住下面的内容、给一点悬浮感 */
+/* 被拎起来的那一行：抬起的纸片感（投影 + 上下描边 + 左侧强调色）。
+   这里不再用身份色 —— 屏幕上唯一的彩色边应当只表达状态：琥珀 = override，强调色 = 你正在动的那一行。 */
 .mtx tbody tr.lift {
   position: relative;
   z-index: 9;
@@ -848,14 +849,22 @@ body.dragging { cursor: grabbing; user-select: none; }
 }
 .mtx tbody tr.lift > th,
 .mtx tbody tr.lift > td {
-  background: var(--card);
+  /* 抬起来的那一行整体染一点强调色 —— 在深色底上比投影更"看得见" */
+  background: color-mix(in srgb, var(--accent) 9%, var(--card));
   box-shadow: 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2);
 }
+.mtx tbody tr.lift > th:first-child,
+.mtx tbody tr.lift > td:last-child {
+  box-shadow: 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2), 0 10px 22px -8px rgb(0 0 0 / .45);
+}
 .mtx tbody tr.lift > th { z-index: 10; }
-.mtx tbody tr.lift > th:first-child { box-shadow: inset 3px 0 0 var(--c, var(--border-2)), 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2); }
-/* 身份色只在「正指着它 / 正拖着它」时露出来：一次只有一行，不会跟语义色（琥珀=override、紫=this、天蓝=molang）抢注意力 */
+.mtx tbody tr.lift > th:first-child {
+  box-shadow: inset 3px 0 0 var(--accent), 0 1px 0 var(--border-2), 0 -1px 0 var(--border-2),
+              0 10px 22px -8px rgb(0 0 0 / .45);
+}
+/* 悬浮：只给行首一条 2px 强调色，不碰任何底色，也不带身份色 */
 @media (hover: hover) and (pointer: fine) {
-  .mtx tbody tr.arow:hover > th.rowh { box-shadow: inset 3px 0 0 var(--c, var(--border-2)); }
+  .mtx tbody tr.arow:hover > th.rowh { box-shadow: inset 2px 0 0 var(--accent); }
 }
 
 /* ============================================================
@@ -1472,7 +1481,7 @@ html[data-theme="light"] .rh-meta .chip.th { color: #1D4ED8; }
    也用 (hover: hover) 把触屏整体排除。 */
 @media (hover: hover) and (pointer: fine) {
   .mtx tbody tr.arow:hover th.rowh {
-    box-shadow: inset 2px 0 0 var(--accent), inset 3px 0 0 var(--c, var(--border-2));
+    box-shadow: inset 2px 0 0 var(--accent);
   }
 }
 .mtx tbody tr.arow.off td { opacity: .5; }
