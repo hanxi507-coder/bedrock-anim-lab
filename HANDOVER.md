@@ -509,7 +509,17 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 
 ## 14. 变更记录（接手后）
 
-### 2026-11-27 22:45 · 桌面端三个真 bug：render 每帧抛异常 / 单元格折成麻花 / 桌面没有展开
+### 2026-11-27 22:50 · 拖动仍会闪：根因是「拿带 transform 的 rect 当布局位置」
+
+- 用户「还会闪，特别是往下拖的时候和下面的卡片互换那个动画」。物理原因不在渲染时机，而在**测量**：
+  1. `place(fresh)` 在 `fresh` 时把 `tr.getBoundingClientRect().top` 当作"布局位置"，但此时元素身上还挂着上一帧的 `transform: translateY(ty)` → 算出来的新 `ty` 把旧的位移又算了一遍。往下换位后元素自身下移一整行，于是**瞬间跳到下一个格位再被 FLIP 拉回**，看着就是"抽一下"。
+  2. `topsNow()` 同样读的是带 transform 的 rect，`targetIndex()` 与 `flipOthers()` 的基准因此偏移一整行。
+- 改法（自纠正式测量）：
+  - 新增 `measure()`：先把所有行的 `transform` 清空，再量 rect，同时把 `drag.ty` 归零；
+  - `place()` 不再分 `fresh`：清空自身 transform → 量布局位置 → `ty = (curY - offY) - natural` → 写回；
+  - `applyTarget()` 改成 `measure() → splice → insertBefore → measure() → flipOthers(prev) → place()`，`flipOthers` 直接用两次 measure 的差值，不再自己读 rect；
+  - `startDrag()` 先把 `.lift` 与 `body.dragging` 挂上**再**量 `offY`（否则一起手整行会先跳十几个像素）。
+- 验证（合成 pointer 事件，向下拖动跨过两行）：被拖行 `top - pointerY` 恒为 `-38`（**全程零跳变**，跨越换位也没变化）；被顶走的行拿到 `translateY(89px)` 再缓动回 0；松手 500ms 后 `lift=0`、`dragging=false`、`idx` 回到 `01…05`、`state.stack` 与 `localStorage` 顺序一致。### 2026-11-27 22:45 · 桌面端三个真 bug：render 每帧抛异常 / 单元格折成麻花 / 桌面没有展开
 
 - 用户说「电脑端你同步了吗，感觉问题还是挺多」。文件确实同步了（Pages 与 `main` 同字节），但**代码本身有 bug**：
   1. **`render()` 末尾还在调 `syncHeadToggle()`** —— 那个函数在 22:05 改成 `toggleCol/toggleSum` 时被我删了。于是**每一次 render 都在最后一行抛 `ReferenceError`**：表格已经重建完，所以肉眼看不出，但 `render()` 之后的语句全被跳过 —— 拖完松手那次 `save()` 没执行（刷新就回退）、toast 不弹、示例库加入后不落盘。这是"问题挺多"的主因。
