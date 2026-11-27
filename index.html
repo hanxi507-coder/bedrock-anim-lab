@@ -1306,6 +1306,23 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
   justify-content: space-between;
   gap: 8px;
 }
+/* 左列收窄按钮：只有手机/平板才有（电脑端表格够宽，不需要这个功能） */
+.coltoggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-2);
+  color: var(--text-3);
+  cursor: pointer;
+  flex: none;
+}
+.coltoggle:hover { color: var(--text); border-color: var(--border-2); }
+.coltoggle .icon { width: 12px; height: 12px; }
 /* 快速选骨骼：角落那个小按钮 + 弹出面板 */
 .bm-btn {
   display: inline-flex;
@@ -1606,7 +1623,28 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
     border-left: 0; border-right: 0; border-radius: 0;
     box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border);
   }
-  .mtx { --lbl: 176px; --chw: 118px; width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw))); font-size: 11.5px; }
+  /* 手机端才有「收起动画名列」：总宽按展开态 --lbl0 算，收起只把省下的宽度交给尾巴列 */
+  .mtx { --lbl0: 176px; --lbl: 176px; --chw: 118px; width: max(100%, calc(var(--lbl0) + var(--ncol, 1) * var(--chw))); font-size: 11.5px; }
+  .coltoggle { display: inline-flex; }
+  .mtx.col-collapsed { --lbl: 88px; }
+  .mtx.col-collapsed thead th.corner,
+  .mtx.col-collapsed tbody th.rowh { width: 88px; min-width: 88px; padding: 4px 4px; }
+  .mtx.col-collapsed tbody th.rowh .rh-top { flex-wrap: wrap; gap: 3px 4px; }
+  .mtx.col-collapsed tbody th.rowh .rh-top .key {
+    font-size: 9.5px; line-height: 1.25;
+    display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2; overflow: hidden;
+  }
+  .mtx.col-collapsed tbody th.rowh { height: 84px; }
+  .mtx.col-collapsed tbody th.rowh .rh-meta { flex-wrap: nowrap; gap: 2px 3px; margin-top: 3px; overflow: hidden; }
+  .mtx.col-collapsed tbody th.rowh .rh-meta .len { font-size: 9.5px; }
+  .mtx.col-collapsed tbody th.rowh .rh-meta .tags { display: none; }
+  .mtx.col-collapsed tbody th.rowh .rh-top .acts { width: 100%; justify-content: flex-start; gap: 3px; }
+  .mtx.col-collapsed .corner-t,
+  .mtx.col-collapsed .bm-btn span { display: none; }
+  .mtx.col-collapsed thead th.corner { padding: 6px 4px; text-align: center; }
+  .mtx.col-collapsed thead th.corner .corner-row { justify-content: center; gap: 4px; }
+  .mtx.col-collapsed thead th.corner .coltoggle { margin-left: 0; }
   .mtx thead th.corner, .mtx tbody th.rowh { width: 176px; min-width: 176px; padding: 6px 8px; }
   .mtx thead th.corner { font-size: 9.5px; }
   .mtx thead tr:first-child th { height: 26px; font-size: 10.5px; }
@@ -1850,7 +1888,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 01:30';
+const BUILD = '11-28 01:40';
 const LS_KEY = 'bedrock-anim-lab.v4';
 const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入 · Ctrl+Z 撤销';
 function applyTheme(t, persist) {
@@ -2342,6 +2380,7 @@ const state = {
   vars: {},                  // 用户给 variable.* / query.* 设的值（Blockbench 那种变量占位符），键是完整名
   hiddenBones: [],           // 被用户隐藏的骨骼（只影响显示，不影响 this / override 判定）
   openCells: new Set(),      // 被单独展开的格子：item.id|骨骼|通道（只记在内存里，刷新即折叠）
+  colCollapsed: false,       // 左边动画名列是否收窄成一小条（只有手机/平板会用）
   sumHidden: false           // 底部「最终值」行是否收起
 };
 
@@ -3011,6 +3050,10 @@ function render() {
 
   const head1 = '<th class="corner" rowspan="2" scope="col">'
     + '<span class="corner-row"><span class="corner-t">动画 <span class="dim">/ 骨骼 →</span></span>'
+    + '<button class="coltoggle" data-coltoggle type="button" aria-expanded="'
+    + (state.colCollapsed ? 'false' : 'true') + '" title="'
+    + (state.colCollapsed ? '展开左边的动画名列' : '收起左边的动画名列，换更多通道列') + '">'
+    + ic(state.colCollapsed ? 'chevronsRight' : 'chevronsLeft') + '</button>'
     + '<button class="bm-btn' + (state.hiddenBones.length ? ' on' : '') + '" data-bonemgr type="button"'
     + ' aria-haspopup="dialog" title="选择显示哪些骨骼 · Alt+点骨骼表头 = 只看这一根">'
     + ic('eye') + '<span>骨骼</span></button></span></th>'
@@ -3037,6 +3080,7 @@ function render() {
       ? '<button class="sumbar" data-sumtoggle type="button" title="展开最终值行">'
         + '<span class="sumfold">' + ic('chevronsUp') + '</span>最终值 · 已收起，点这里展开</button>'
       : '');
+  host.firstChild.classList.toggle('col-collapsed', !!state.colCollapsed);
   host.style.setProperty('--ncol', cols.length);
   state.allBones = allBones;
   renderColbar(allBones);
@@ -3044,6 +3088,20 @@ function render() {
 }
 
 /* 最终值那一行可以收起：按钮长在底部那一行自己身上，不额外占一行 */
+/* 收起/展开左边的动画名列：按钮长在表头左上角，只在手机/平板上显示 */
+function toggleCol() {
+  state.colCollapsed = !state.colCollapsed;
+  const t = document.querySelector('#matrix > table');
+  if (t) t.classList.toggle('col-collapsed', !!state.colCollapsed);
+  const b = document.querySelector('.coltoggle');
+  if (b) {
+    b.setAttribute('aria-expanded', state.colCollapsed ? 'false' : 'true');
+    b.title = state.colCollapsed ? '展开左边的动画名列' : '收起左边的动画名列，换更多通道列';
+    b.innerHTML = ic(state.colCollapsed ? 'chevronsRight' : 'chevronsLeft');
+  }
+  save();
+}
+
 function toggleSum() {
   state.sumHidden = !state.sumHidden;
   render();
@@ -3052,6 +3110,7 @@ function toggleSum() {
 
 function initViewToggles() {
   document.addEventListener('click', e => {
+    if (e.target.closest('[data-coltoggle]')) { toggleCol(); return; }
     if (e.target.closest('[data-sumtoggle]')) { toggleSum(); return; }
   });
 }
@@ -3569,7 +3628,8 @@ function save() {
         enabled: i.enabled, color: i.color
       })),
       hiddenBones: state.hiddenBones,
-      sumHidden: !!state.sumHidden,
+      colCollapsed: !!state.colCollapsed,
+  sumHidden: !!state.sumHidden,
       vars: state.vars
     }));
   } catch (e) { /* 存不下就算了 */ }
@@ -3588,7 +3648,8 @@ function load() {
       it.color = d.color || STACK_COLORS[0];
       return it;
     });
-    state.sumHidden = !!data.sumHidden;
+    state.colCollapsed = !!data.colCollapsed;
+  state.sumHidden = !!data.sumHidden;
     state.hiddenBones = Array.isArray(data.hiddenBones)
       ? data.hiddenBones.filter(b => typeof b === 'string')
       : [];
