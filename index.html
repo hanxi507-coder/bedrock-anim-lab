@@ -792,15 +792,6 @@ html[data-theme="light"] .expr.th {
 .mtx.col-collapsed thead th.corner { padding: 6px 4px; text-align: center; }
 .mtx.col-collapsed thead th.corner .corner-row { justify-content: center; gap: 4px; }
 .mtx.col-collapsed thead th.corner .coltoggle { margin-left: 0; }
-/* 手机：这条栏当骨骼选择器用（只显示选中的那一根） */
-.colbar.as-picker { gap: 5px; padding: 5px 7px; flex-wrap: nowrap; overflow-x: auto; }
-.colbar.as-picker .cbl { flex: none; color: var(--text-3); }
-.colbar.as-picker .hb.bsel { flex: none; height: 24px; padding: 0 9px; border-radius: 999px; }
-.colbar.as-picker .hb.bsel.on {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--text);
-}
 .colbar .hb {
   display: inline-flex;
   align-items: center;
@@ -3069,25 +3060,10 @@ function initViewToggles() {
 }
 
 /* 已隐藏的骨骼：只在有隐藏项时出现；点 chip 恢复单个，右侧一键全恢复 */
-const isPhone = () => matchMedia('(max-width: 480px)').matches;
-
 function renderColbar(allBones) {
   const bar = $('#colbar');
   if (!bar) return;
-  /* 手机上横向只有 374px：把这条栏当成「骨骼选择器」用 —— 点一根就只看它 */
-  if (isPhone()) {
-    const vis = allBones.filter(b => state.hiddenBones.indexOf(b) < 0);
-    const solo = vis.length === 1 ? vis[0] : null;
-    bar.hidden = false;
-    bar.classList.add('as-picker');
-    bar.innerHTML = '<span class="cbl" title="手机上只显示选中的骨骼，列会少一大半">'
-      + ic('layers') + '只看</span>'
-      + '<button class="hb bsel' + (solo ? '' : ' on') + '" data-bone="">全部</button>'
-      + allBones.map(b => '<button class="hb bsel' + (solo === b ? ' on' : '') + '" data-bone="'
-        + escapeHtml(b) + '" title="只看 ' + escapeHtml(b) + '">' + escapeHtml(b) + '</button>').join('');
-    return;
-  }
-  bar.classList.remove('as-picker');
+
   const hidden = state.hiddenBones.filter(b => allBones.indexOf(b) >= 0);
   if (!hidden.length) { bar.hidden = true; bar.innerHTML = ''; return; }
   bar.hidden = false;
