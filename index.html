@@ -785,7 +785,19 @@ html[data-theme="light"] .expr.th {
   display: -webkit-box; -webkit-box-orient: vertical;
   -webkit-line-clamp: 2; overflow: hidden;   /* 80px 下也留两行，别只剩 huma… */
 }
-.mtx.col-collapsed tbody th.rowh .rh-meta { display: none; }
+/* 收起时不要再藏 rh-meta：藏了行高就由单元格决定，整表会「突然被压扁」。
+   这里让它留在同一行里、超出的部分裁掉，再给行一个接近展开态的最小高度，
+   两种状态的行高就差不出几像素，切换时不会突然缩放。 */
+.mtx.col-collapsed tbody th.rowh { height: 84px; }
+.mtx.col-collapsed tbody th.rowh .rh-meta {
+  flex-wrap: nowrap;
+  gap: 2px 3px;
+  margin-top: 3px;
+  overflow: hidden;
+}
+.mtx.col-collapsed tbody th.rowh .rh-meta .len { font-size: 9.5px; }
+/* 88px 只放得下时长；骨骼数 / molang 计数留在这里只会被切一半，索性不显示 */
+.mtx.col-collapsed tbody th.rowh .rh-meta .tags { display: none; }
 .mtx.col-collapsed tbody th.rowh .rh-top .acts { width: 100%; justify-content: flex-start; gap: 3px; }
 .mtx.col-collapsed .corner-t,
 .mtx.col-collapsed .bm-btn span { display: none; }
@@ -1278,12 +1290,21 @@ textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 /* 列宽用 <col> 钉死：table-layout:fixed 只有在列宽齐备时才不会把余量摊给某一列 */
 .mtx col.c-lbl { width: var(--lbl, 210px); }
 .mtx col.c-ch  { width: var(--chw, 136px); }
+/* 尾巴列：只有它没定宽，容器比表格宽时余量全给它 —— 真实列宽和表格外框都不会因收起而变 */
+.mtx col.c-pad { width: auto; }
+.mtx td.cpad {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.mtx tbody tr.sumrow td.cpad { border-top: 1px solid var(--border); }
 /* ---- 转置版：行 = 动画，列 = 骨骼 / 通道 ---- */
 .mtx {
   --lbl: 210px;
   --chw: 136px;
-  /* 总宽必须写死成「各列之和」：`width:auto` 会让 fixed 布局按内容重新分配（实测列宽会变成 1021/395/112…）。 */
-  width: calc(var(--lbl) + var(--ncol, 1) * var(--chw));
+  /* max(容器宽, 各列之和)：容器更宽时余量进尾巴列，通道列永远 var(--chw)；
+     容器更窄时按各列之和撑开、横向滚动。两个分支都不改真实列宽。 */
+  width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw)));
 }
 .mtx thead {
   position: sticky;
@@ -1564,7 +1585,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
   .shell { padding: 16px 16px 56px; }
   .statusbar { padding: 0 16px; }
   .docs { grid-template-columns: 1fr; }
-  .mtx { --lbl: 186px; --chw: 128px; width: calc(var(--lbl) + var(--ncol, 1) * var(--chw)); }
+  .mtx { --lbl: 186px; --chw: 128px; width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw))); }
   .mtx thead th.corner, .mtx tbody th.rowh { width: 186px; min-width: 186px; }
   .mtx thead th.chanh { width: 128px; }
 }
@@ -1626,7 +1647,7 @@ body.dragging .mtx tbody th.rowh:focus-visible { outline: none; }
     border-left: 0; border-right: 0; border-radius: 0;
     box-shadow: inset 0 1px 0 var(--border), inset 0 -1px 0 var(--border);
   }
-  .mtx { --lbl: 176px; --chw: 118px; width: calc(var(--lbl) + var(--ncol, 1) * var(--chw)); font-size: 11.5px; }
+  .mtx { --lbl: 176px; --chw: 118px; width: max(100%, calc(var(--lbl) + var(--ncol, 1) * var(--chw))); font-size: 11.5px; }
   .mtx thead th.corner, .mtx tbody th.rowh { width: 176px; min-width: 176px; padding: 6px 8px; }
   .mtx thead th.corner { font-size: 9.5px; }
   .mtx thead tr:first-child th { height: 26px; font-size: 10.5px; }
@@ -1870,7 +1891,7 @@ const ic = n => ICON[n] || '';
 
 /* ---------------- 主题（跟随系统，可手动切换） ---------------- */
 const THEME_KEY = 'bedrock-anim-lab.theme';
-const BUILD = '11-28 00:26';
+const BUILD = '11-28 00:52';
 const LS_KEY = 'bedrock-anim-lab.v4';
 const HINT_DEFAULT = '拖动行首排序 · 拖文件进窗口导入 · Ctrl+Z 撤销';
 function applyTheme(t, persist) {
@@ -2718,6 +2739,7 @@ function sumRowHTML(cols, fin) {
     + '<span class="sumfold">' + ic('chevronsDown') + '</span></button>'
     + '</th>'
     + cols.map(c => sumCellHTML(c, fin, va)).join('')
+    + '<td class="cpad"></td>'
     + '</tr>';
 }
 
@@ -3049,14 +3071,14 @@ function render() {
 
   const body = rows.map(r =>
     '<tr class="arow' + (r.item.enabled ? '' : ' off') + (r.ovOn ? ' ovon' : '') + '" data-id="' + r.item.id + '">' + rowHead(r, allBones)
-    + cols.map(c => cellHTML(r, c, bounds, shadow)).join('') + '</tr>').join('');
+    + cols.map(c => cellHTML(r, c, bounds, shadow)).join('') + '<td class="cpad"></td></tr>').join('');
 
   /* 最终值行：只跟顺序有关，不代入时间 */
   const sum = state.sumHidden ? '' : sumRowHTML(cols, computeFinal());
 
-  const colgroup = '<colgroup><col class="c-lbl">' + cols.map(() => '<col class="c-ch">').join('') + '</colgroup>';
+  const colgroup = '<colgroup><col class="c-lbl">' + cols.map(() => '<col class="c-ch">').join('') + '<col class="c-pad"></colgroup>';
   host.innerHTML = '<table class="mtx" aria-label="动画叠加矩阵：行是动画（上面的先算），列是骨骼与通道">' + colgroup + '<thead><tr>'
-    + head1 + '</tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>'
+    + head1 + '<th class="cpad" rowspan="2" aria-hidden="true"></th></tr><tr>' + head2 + '</tr></thead><tbody>' + body + sum + '</tbody></table>'
     + (state.sumHidden
       ? '<button class="sumbar" data-sumtoggle type="button" title="展开最终值行">'
         + '<span class="sumfold">' + ic('chevronsUp') + '</span>最终值 · 已收起，点这里展开</button>'
