@@ -1144,3 +1144,44 @@ const LS_KEY = 'bedrock-anim-lab.v4';
 1. `.btn.tiny`（28px）在移动端 < 44px 触控标准，可只在窄屏放大；
 2. 矩阵横向滚动时可以再冻结骨骼表头行；
 3. 拖拽仍无边缘自动滚动。
+---
+
+## 15. 项目收尾（2026-11-28）
+
+**状态：功能完成，线上稳定。** HEAD `baed985`，构建号 `11-28 03:22`，`index.html` 4260 行 / 179 797 字节。
+
+### 15.1 这一夜改了什么（按时间）
+
+| 提交 | 内容 |
+| --- | --- |
+| `8f34876` | 恢复「动画名列折叠」，但**只在 ≤767px 生效**；桌面端彻底没有折叠（此前桌面折叠时会因 `table-layout:fixed` 把差额摊给通道列，看着像"整表被缩放"） |
+| `14e2d27` | 变量弹窗每行改成 `名字 │ 输入框` 两列网格（原来 `.var-row` 是 flex，`grid-template-columns` 不生效，输入框吃满整行把名字压成 0 宽） |
+| `2f483ea` | 删掉状态栏里的构建号（只在「关于」里保留）；变量行名字不再被挤掉 |
+| `05766d3` | 排序提示按设备区分：鼠标「整张卡片任意位置都能拖」／触屏「按住行首那一列拖」 |
+| `2f73b3c` | 提示条去掉左侧点阵图标（文字已说明抓手，图标多余） |
+| `049ee67` | 变量拖动灵敏度 1 → **0.4/px**（Shift 4、Alt 0.04），双端一致 |
+| `6ce3909` | 再慢一倍 → **0.2/px**（Shift 2、Alt 0.02）；提示文案改成**速率等式**：`值 = 0.2 × 位移(px)` |
+| `3a8829b` | 最终值行「已代入 N 个」不再顶出名字列（换行 + 截断 + 手机去掉量词）；**新增：表格里点变量名直接改值** |
+| `7e7db03` | 展开后的长表达式重新可换行（`.vec span` 改 `.vec > span`，变量名不再被 flex 化）；变量名高亮底色代替下划线 |
+| `baed985` | 变量名平时不着色，只在 hover / 按下 / 键盘聚焦时出现 3px 圆角高亮 |
+
+### 15.2 关键实现点（以后还会踩）
+
+- **折叠只在手机**：`@media (max-width: 767px)` 里才有 `.mtx.col-collapsed { --lbl: 88px }`；桌面端 `toggleCol()` 即使被调用也不会改变 `--lbl`（实测 1478px 宽加类后仍 210px）。宽度公式 `max(100%, calc(var(--lbl0) + var(--ncol) * var(--chw)))` + 尾巴列 `<col class="c-pad">` 吸收余量，保证收放时**通道列恒宽**。
+- **可点变量名**：`litHTML()` 把 `\b(variable|query|context|temp)\.[A-Za-z0-9_]+` 包成 `<span class="vref" role="button" tabindex="0">`；`#matrix` 上委托 click/keydown(Enter·空格) → `openVars(name)`（打开弹窗 + 滚到该行 + 聚焦全选 + 该行 `.hit` 高亮）。
+- **`.vref` 必须是 `display:inline` 且 `white-space:inherit`**：`.vec span { display:flex }` 曾把变量名也 flex 化，导致「展开」后不可换行、压到右邻格。修法是把那条规则收窄成 `.vec > span`。
+- **变量拖动步长**：`const step = e.shiftKey ? 2 : (e.altKey ? 0.02 : 0.2);`（`index.html` 约 4150 行），纯 `clientX` 位移驱动、手停就停，**不用 rAF**（后台标签页会被挂起）。
+
+### 15.3 部署
+
+- 仓库 <https://github.com/hanxi507-coder/bedrock-anim-lab>，Pages = GitHub Actions。
+- 工作流 `.github/workflows/static.yml` 必须**拆成两个 job**：`build`（checkout + configure-pages + `upload-pages-artifact@v3` with `path:'.'`）与 `deploy`（`needs: build` + `environment: github-pages` + `deploy-pages@v5`）。写在同一 job 里会出现 `No artifacts named "github-pages"` / 重跑后 `Multiple artifacts named "github-pages"`。
+- 本地预览：`node server.js` → <http://127.0.0.1:8765/index.html>（`Cache-Control: no-store`，改完刷新即可）。
+- 手机真机：HDC `hdc rport tcp:8765 tcp:8765` + `aa start -b com.huawei.hmos.browser -a MainAbility -U "URL"`；`uitest uiInput click` 用**逻辑像素**（设备像素 ÷ 3.375）。首次进入态可用 `http://localhost:8765`（与 `127.0.0.1` 的 localStorage 互不相通）。
+
+### 15.4 仍可打磨（非阻塞）
+
+1. `.btn.tiny` 在移动端 < 44px 触控标准；
+2. 矩阵横向滚动时骨骼表头行可再冻结（现在只有首列 sticky）；
+3. 拖拽无边缘自动滚动；
+4. 首次进入默认浅色 —— 若要跟随"深色为主"的设计初衷，可在 `initTheme()` 里把缺省改成 `dark`。
